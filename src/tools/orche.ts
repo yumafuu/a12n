@@ -92,7 +92,7 @@ export const orcheHandlers = {
     const workerPromptPath = `${projectRoot}/worker-prompt.md`;
     const command = `WORKER_ID=${workerId} TASK_ID=${taskId} claude --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。まず check_messages を呼んでタスク内容を確認してください。"`;
 
-    const paneId = await tmux.splitPane("vertical", command);
+    const paneId = await tmux.splitPane("horizontal", command);
 
     // Register worker
     await db.registerWorker(workerId, paneId);
