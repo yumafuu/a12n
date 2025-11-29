@@ -71,11 +71,20 @@ async function notifyOrche(paneId: string, messageTypes: string[]): Promise<void
 
   // Send keys to orche pane
   try {
-    const proc = Bun.spawn(["tmux", "send-keys", "-t", paneId, prompt, "Enter"], {
+    // First send the prompt text
+    const proc1 = Bun.spawn(["tmux", "send-keys", "-t", paneId, prompt], {
       stdout: "pipe",
       stderr: "pipe",
     });
-    await proc.exited;
+    await proc1.exited;
+
+    // Then send Enter key separately
+    const proc2 = Bun.spawn(["tmux", "send-keys", "-t", paneId, "Enter"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    await proc2.exited;
+
     console.log(`[watcher] Notified orche: ${prompt}`);
   } catch (error) {
     console.error(`[watcher] Failed to notify orche:`, error);
