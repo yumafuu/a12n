@@ -7,6 +7,7 @@ export const MessageType = {
   REVIEW_REQUEST: "REVIEW_REQUEST",
   REVIEW_RESULT: "REVIEW_RESULT",
   TASK_COMPLETE: "TASK_COMPLETE",
+  EMERGENCY_STOP: "EMERGENCY_STOP",
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
@@ -35,6 +36,8 @@ export type TaskAssignPayload = {
   task_id: string;
   description: string;
   context?: string;
+  worktree_path?: string;
+  branch_name?: string;
 };
 
 export type ProgressPayload = {
@@ -57,6 +60,7 @@ export type ReviewRequestPayload = {
   task_id: string;
   summary: string;
   files?: string[];
+  pr_url?: string;
 };
 
 export type ReviewResultPayload = {
@@ -69,6 +73,11 @@ export type TaskCompletePayload = {
   task_id: string;
 };
 
+export type EmergencyStopPayload = {
+  task_id: string;
+  reason: string;
+};
+
 export type MessagePayload =
   | TaskAssignPayload
   | ProgressPayload
@@ -76,7 +85,8 @@ export type MessagePayload =
   | AnswerPayload
   | ReviewRequestPayload
   | ReviewResultPayload
-  | TaskCompletePayload;
+  | TaskCompletePayload
+  | EmergencyStopPayload;
 
 // Base message structure
 export type Message = {
@@ -95,6 +105,9 @@ export type Task = {
   worker_id?: string;
   description: string;
   context?: string;
+  worktree_path?: string;
+  branch_name?: string;
+  pr_url?: string;
   created_at: number;
   updated_at: number;
 };
@@ -109,4 +122,4 @@ export type Worker = {
 };
 
 // Role
-export type Role = "orche" | "worker";
+export type Role = "planner" | "orche" | "worker";

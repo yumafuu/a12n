@@ -6,6 +6,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { orcheTools, orcheHandlers } from "./tools/orche.js";
 import { workerTools, workerHandlers } from "./tools/worker.js";
+import { plannerTools, plannerHandlers } from "./tools/planner.js";
 import type { Role } from "./types.js";
 
 // Parse command line arguments
@@ -122,6 +123,8 @@ function startWatcher(): void {
   const watcherPath = `${projectRoot}/src/watcher.ts`;
 
   console.error(`Starting watcher: ${watcherPath}`);
+  console.error(`PLANNER_PANE: ${process.env.PLANNER_PANE || "(not set)"}`);
+  console.error(`ORCHE_PANE: ${process.env.ORCHE_PANE || "(not set)"}`);
 
   watcherProc = Bun.spawn(["bun", "run", watcherPath], {
     cwd: projectRoot,
@@ -129,6 +132,8 @@ function startWatcher(): void {
       ...process.env,
       PROJECT_ROOT: projectRoot,
       DB_PATH: process.env.DB_PATH || `${projectRoot}/aiorchestration.db`,
+      PLANNER_PANE: process.env.PLANNER_PANE || "",
+      ORCHE_PANE: process.env.ORCHE_PANE || "",
     },
     stdout: "inherit",
     stderr: "inherit",
@@ -182,8 +187,18 @@ async function main() {
   );
 
   // Get tools based on role
-  const tools = role === "orche" ? orcheTools : workerTools;
-  const handlers = role === "orche" ? orcheHandlers : workerHandlers;
+  let tools;
+  let handlers;
+  if (role === "planner") {
+    tools = plannerTools;
+    handlers = plannerHandlers;
+  } else if (role === "orche") {
+    tools = orcheTools;
+    handlers = orcheHandlers;
+  } else {
+    tools = workerTools;
+    handlers = workerHandlers;
+  }
 
   // List tools handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {

@@ -66,11 +66,91 @@ export const orcheTools = [
       task_id: z.string().describe("Task ID to check"),
     }),
   },
+  {
+    name: "emergency_stop",
+    description:
+      "Emergency stop a worker that is performing dangerous operations. Use this when you detect risky commands like rm -rf, force push to main, etc.",
+    inputSchema: z.object({
+      worker_id: z.string().describe("Worker ID to stop"),
+      reason: z.string().describe("Reason for emergency stop"),
+    }),
+  },
 ] as const;
 
 // Get project root directory
 function getProjectRoot(): string {
   return process.env.PROJECT_ROOT || process.cwd();
+}
+
+// Get target repository root (where workers will work)
+function getTargetRepoRoot(): string {
+  return process.env.TARGET_REPO_ROOT || process.cwd();
+}
+
+// Create git worktree for a worker
+async function createWorktree(
+  taskId: string,
+  workerId: string
+): Promise<{ worktreePath: string; branchName: string }> {
+  const targetRepo = getTargetRepoRoot();
+  const branchName = `task/${taskId.slice(0, 8)}`;
+  const worktreePath = `${targetRepo}/.worktrees/${workerId}`;
+
+  // Create .worktrees directory if it doesn't exist
+  const proc1 = Bun.spawn(["mkdir", "-p", `${targetRepo}/.worktrees`], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  await proc1.exited;
+
+  // Get current branch to use as base
+  const proc2 = Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd: targetRepo,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const baseBranch = (await new Response(proc2.stdout).text()).trim() || "main";
+  await proc2.exited;
+
+  // Create new worktree with new branch
+  const proc3 = Bun.spawn(
+    ["git", "worktree", "add", "-b", branchName, worktreePath, baseBranch],
+    {
+      cwd: targetRepo,
+      stdout: "pipe",
+      stderr: "pipe",
+    }
+  );
+  const stderr = await new Response(proc3.stderr).text();
+  const exitCode = await proc3.exited;
+
+  if (exitCode !== 0) {
+    // Branch might already exist, try without -b
+    const proc4 = Bun.spawn(
+      ["git", "worktree", "add", worktreePath, branchName],
+      {
+        cwd: targetRepo,
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc4.exited;
+  }
+
+  return { worktreePath, branchName };
+}
+
+// Remove git worktree
+async function removeWorktree(worktreePath: string): Promise<void> {
+  const targetRepo = getTargetRepoRoot();
+
+  // Remove worktree
+  const proc = Bun.spawn(["git", "worktree", "remove", "--force", worktreePath], {
+    cwd: targetRepo,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  await proc.exited;
 }
 
 // Tool handlers
@@ -84,13 +164,47 @@ export const orcheHandlers = {
     const workerId = `worker-${uuidv4().slice(0, 8)}`;
     const projectRoot = getProjectRoot();
 
-    // Create task in Redis
-    await db.createTask(taskId, params.description, params.context);
+    // Create git worktree for this worker
+    const { worktreePath, branchName } = await createWorktree(taskId, workerId);
 
-    // Create new tmux pane
-    const workerConfigPath = `${projectRoot}/worker.json`;
+    // Create task in DB with worktree info
+    await db.createTask(
+      taskId,
+      params.description,
+      params.context,
+      worktreePath,
+      branchName
+    );
+
+    // Create worker-specific MCP config with environment variables
+    const workerConfigPath = `${worktreePath}/.worker-config.json`;
+    const dbPath = process.env.DB_PATH || `${projectRoot}/aiorchestration.db`;
+    const workerConfig = {
+      mcpServers: {
+        aiorchestration: {
+          command: "bun",
+          args: [
+            "run",
+            `${projectRoot}/src/mcp-server.ts`,
+            "--role",
+            "worker",
+          ],
+          env: {
+            PROJECT_ROOT: projectRoot,
+            DB_PATH: dbPath,
+            WORKER_ID: workerId,
+            TASK_ID: taskId,
+            WORKTREE_PATH: worktreePath,
+            BRANCH_NAME: branchName,
+          },
+        },
+      },
+    };
+    await Bun.write(workerConfigPath, JSON.stringify(workerConfig, null, 2));
+
+    // Create new tmux pane - worker runs in worktree directory with auto-approve
     const workerPromptPath = `${projectRoot}/worker-prompt.md`;
-    const command = `WORKER_ID=${workerId} TASK_ID=${taskId} claude --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。まず check_messages を呼んでタスク内容を確認してください。"`;
+    const command = `cd ${worktreePath} && claude --dangerously-skip-permissions --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。まず check_messages を呼んでタスク内容を確認してください。"`;
 
     const paneId = await tmux.splitPane("horizontal", command);
 
@@ -104,6 +218,8 @@ export const orcheHandlers = {
       task_id: taskId,
       description: params.description,
       context: params.context,
+      worktree_path: worktreePath,
+      branch_name: branchName,
     });
 
     return JSON.stringify({
@@ -111,7 +227,9 @@ export const orcheHandlers = {
       worker_id: workerId,
       task_id: taskId,
       pane_id: paneId,
-      message: `Worker ${workerId} spawned with task ${taskId}`,
+      worktree_path: worktreePath,
+      branch_name: branchName,
+      message: `Worker ${workerId} spawned with task ${taskId} in worktree ${worktreePath}`,
     });
   },
 
@@ -134,12 +252,22 @@ export const orcheHandlers = {
       }
     }
 
-    // Update task status if worker had a task
+    // Update task status and cleanup worktree if worker had a task
     if (worker.task_id) {
+      const task = await db.getTask(worker.task_id);
       await db.updateTaskStatus(worker.task_id, TaskStatus.FAILED);
+
+      // Remove worktree
+      if (task?.worktree_path) {
+        try {
+          await removeWorktree(task.worktree_path);
+        } catch {
+          // Worktree might already be removed
+        }
+      }
     }
 
-    // Remove worker from Redis
+    // Remove worker from DB
     await db.removeWorker(params.worker_id);
 
     return JSON.stringify({
@@ -233,11 +361,23 @@ export const orcheHandlers = {
       params.last_id || "0"
     );
 
-    // Update task status based on received messages
+    // Process messages
     for (const msg of messages) {
       if (msg.type === MessageType.REVIEW_REQUEST) {
-        const payload = msg.payload as { task_id: string };
+        // Forward REVIEW_REQUEST to planner
+        const payload = msg.payload as { task_id: string; summary: string; files?: string[]; pr_url?: string };
         await db.updateTaskStatus(payload.task_id, TaskStatus.REVIEW);
+
+        // Save PR URL to task if provided
+        if (payload.pr_url) {
+          await db.updateTaskPrUrl(payload.task_id, payload.pr_url);
+        }
+
+        await db.sendMessage("planner", "orche", MessageType.REVIEW_REQUEST, payload);
+      } else if (msg.type === MessageType.TASK_ASSIGN && msg.from === "planner") {
+        // Handle task from planner - spawn worker
+        const payload = msg.payload as { description: string; context?: string };
+        // This will be handled by the caller who should call spawn_worker
       }
     }
 
@@ -290,12 +430,22 @@ export const orcheHandlers = {
       }
     }
 
+    // Remove worktree (PR is already created, worktree is no longer needed)
+    if (task.worktree_path) {
+      try {
+        await removeWorktree(task.worktree_path);
+      } catch {
+        // Worktree might already be removed
+      }
+    }
+
     // Remove worker from db
     await db.removeWorker(task.worker_id);
 
     return JSON.stringify({
       success: true,
       message: `Task ${params.task_id} completed. Worker ${task.worker_id} terminated.`,
+      pr_url: task.pr_url,
     });
   },
 
@@ -320,6 +470,55 @@ export const orcheHandlers = {
         created_at: new Date(task.created_at).toISOString(),
         updated_at: new Date(task.updated_at).toISOString(),
       },
+    });
+  },
+
+  async emergency_stop(params: {
+    worker_id: string;
+    reason: string;
+  }): Promise<string> {
+    const worker = await db.getWorker(params.worker_id);
+
+    if (!worker) {
+      return JSON.stringify({
+        success: false,
+        error: `Worker ${params.worker_id} not found`,
+      });
+    }
+
+    // Send EMERGENCY_STOP message to worker
+    await db.sendMessage(params.worker_id, "orche", MessageType.EMERGENCY_STOP, {
+      task_id: worker.task_id || "",
+      reason: params.reason,
+    });
+
+    // Kill tmux pane immediately
+    if (worker.pane_id) {
+      try {
+        await tmux.killPane(worker.pane_id);
+      } catch {
+        // Pane might already be closed
+      }
+    }
+
+    // Update task status
+    if (worker.task_id) {
+      await db.updateTaskStatus(worker.task_id, TaskStatus.FAILED);
+    }
+
+    // Remove worker
+    await db.removeWorker(params.worker_id);
+
+    // Notify planner
+    await db.sendMessage("planner", "orche", MessageType.PROGRESS, {
+      task_id: worker.task_id || "",
+      status: "EMERGENCY_STOPPED",
+      message: `Worker ${params.worker_id} was emergency stopped. Reason: ${params.reason}`,
+    });
+
+    return JSON.stringify({
+      success: true,
+      message: `Worker ${params.worker_id} emergency stopped. Reason: ${params.reason}`,
     });
   },
 };

@@ -57,6 +57,9 @@ function initSchema(): void {
       worker_id TEXT,
       description TEXT NOT NULL,
       context TEXT,
+      worktree_path TEXT,
+      branch_name TEXT,
+      pr_url TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -153,7 +156,9 @@ export async function checkMessages(
 export async function createTask(
   taskId: string,
   description: string,
-  context?: string
+  context?: string,
+  worktreePath?: string,
+  branchName?: string
 ): Promise<Task> {
   const database = getDb();
   const now = Date.now();
@@ -162,13 +167,15 @@ export async function createTask(
     status: "pending",
     description,
     context,
+    worktree_path: worktreePath,
+    branch_name: branchName,
     created_at: now,
     updated_at: now,
   };
 
   database.run(
-    `INSERT INTO tasks (id, status, description, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-    [task.id, task.status, task.description, task.context || null, task.created_at, task.updated_at]
+    `INSERT INTO tasks (id, status, description, context, worktree_path, branch_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [task.id, task.status, task.description, task.context || null, task.worktree_path || null, task.branch_name || null, task.created_at, task.updated_at]
   );
 
   return task;
@@ -177,13 +184,16 @@ export async function createTask(
 export async function getTask(taskId: string): Promise<Task | null> {
   const database = getDb();
   const row = database.query(
-    `SELECT id, status, worker_id, description, context, created_at, updated_at FROM tasks WHERE id = ?`
+    `SELECT id, status, worker_id, description, context, worktree_path, branch_name, pr_url, created_at, updated_at FROM tasks WHERE id = ?`
   ).get(taskId) as {
     id: string;
     status: string;
     worker_id: string | null;
     description: string;
     context: string | null;
+    worktree_path: string | null;
+    branch_name: string | null;
+    pr_url: string | null;
     created_at: number;
     updated_at: number;
   } | null;
@@ -198,6 +208,9 @@ export async function getTask(taskId: string): Promise<Task | null> {
     worker_id: row.worker_id || undefined,
     description: row.description,
     context: row.context || undefined,
+    worktree_path: row.worktree_path || undefined,
+    branch_name: row.branch_name || undefined,
+    pr_url: row.pr_url || undefined,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -222,6 +235,51 @@ export async function updateTaskStatus(
       [status, now, taskId]
     );
   }
+}
+
+export async function listAllTasks(): Promise<Task[]> {
+  const database = getDb();
+  const rows = database.query(
+    `SELECT id, status, worker_id, description, context, worktree_path, branch_name, pr_url, created_at, updated_at
+     FROM tasks
+     ORDER BY created_at DESC`
+  ).all() as Array<{
+    id: string;
+    status: string;
+    worker_id: string | null;
+    description: string;
+    context: string | null;
+    worktree_path: string | null;
+    branch_name: string | null;
+    pr_url: string | null;
+    created_at: number;
+    updated_at: number;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status as TaskStatus,
+    worker_id: row.worker_id || undefined,
+    description: row.description,
+    context: row.context || undefined,
+    worktree_path: row.worktree_path || undefined,
+    branch_name: row.branch_name || undefined,
+    pr_url: row.pr_url || undefined,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
+}
+
+export async function updateTaskPrUrl(
+  taskId: string,
+  prUrl: string
+): Promise<void> {
+  const database = getDb();
+  const now = Date.now();
+  database.run(
+    `UPDATE tasks SET pr_url = ?, updated_at = ? WHERE id = ?`,
+    [prUrl, now, taskId]
+  );
 }
 
 // Worker operations

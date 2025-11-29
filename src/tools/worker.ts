@@ -20,6 +20,16 @@ function getTaskId(): string {
   return taskId;
 }
 
+// Get worktree path from environment
+function getWorktreePath(): string {
+  return process.env.WORKTREE_PATH || process.cwd();
+}
+
+// Get branch name from environment
+function getBranchName(): string {
+  return process.env.BRANCH_NAME || "";
+}
+
 // Tool definitions for worker
 export const workerTools = [
   {
@@ -49,6 +59,15 @@ export const workerTools = [
     inputSchema: z.object({
       status: z.string().describe("Current status description"),
       message: z.string().describe("Progress message"),
+    }),
+  },
+  {
+    name: "create_pr",
+    description:
+      "Create a GitHub Pull Request for the completed work. Call this after committing all changes and before sending REVIEW_REQUEST.",
+    inputSchema: z.object({
+      title: z.string().describe("PR title"),
+      body: z.string().describe("PR body/description"),
     }),
   },
 ] as const;
@@ -180,6 +199,76 @@ export const workerHandlers = {
       success: true,
       message_id: messageId,
       message: `Progress updated: ${params.status}`,
+    });
+  },
+
+  async create_pr(params: { title: string; body: string }): Promise<string> {
+    const workerId = getWorkerId();
+    const worktreePath = getWorktreePath();
+    const branchName = getBranchName();
+
+    // Update heartbeat
+    await db.updateWorkerHeartbeat(workerId);
+
+    if (!branchName) {
+      return JSON.stringify({
+        success: false,
+        error: "Branch name not set. Cannot create PR.",
+      });
+    }
+
+    // Push the branch to remote
+    const pushProc = Bun.spawn(["git", "push", "-u", "origin", branchName], {
+      cwd: worktreePath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const pushStderr = await new Response(pushProc.stderr).text();
+    const pushExitCode = await pushProc.exited;
+
+    if (pushExitCode !== 0) {
+      return JSON.stringify({
+        success: false,
+        error: `Failed to push branch: ${pushStderr}`,
+      });
+    }
+
+    // Create PR using gh CLI
+    const prProc = Bun.spawn(
+      [
+        "gh",
+        "pr",
+        "create",
+        "--title",
+        params.title,
+        "--body",
+        params.body,
+        "--head",
+        branchName,
+      ],
+      {
+        cwd: worktreePath,
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    const prStdout = await new Response(prProc.stdout).text();
+    const prStderr = await new Response(prProc.stderr).text();
+    const prExitCode = await prProc.exited;
+
+    if (prExitCode !== 0) {
+      return JSON.stringify({
+        success: false,
+        error: `Failed to create PR: ${prStderr}`,
+      });
+    }
+
+    const prUrl = prStdout.trim();
+
+    return JSON.stringify({
+      success: true,
+      pr_url: prUrl,
+      message: `PR created: ${prUrl}`,
     });
   },
 };

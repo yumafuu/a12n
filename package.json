@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "start": "bun run scripts/start.ts",
+    "dev:planner": "bun run src/mcp-server.ts --role planner",
     "dev:orche": "bun run src/mcp-server.ts --role orche",
     "dev:worker": "bun run src/mcp-server.ts --role worker",
     "typecheck": "tsc --noEmit",
