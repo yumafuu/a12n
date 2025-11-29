@@ -116,6 +116,58 @@ export async function killPane(target: string): Promise<void> {
   }
 }
 
+export async function newWindow(
+  command?: string,
+  target?: string
+): Promise<string> {
+  await checkTmux();
+  try {
+    // Build command array for proper escaping
+    const args: string[] = ["tmux", "new-window"];
+
+    if (target) {
+      args.push("-t", target);
+    }
+
+    // Return the new window ID
+    args.push("-P", "-F", "#{window_id}");
+
+    const proc = Bun.spawn(args, {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const output = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new Error(stderr);
+    }
+
+    const windowId = output.trim();
+
+    // If command provided, send it to the new window via send-keys
+    // This allows shell expansion like $(...)
+    if (command) {
+      await sendKeys(windowId, command, true);
+    }
+
+    return windowId;
+  } catch (error) {
+    throw new Error(`Failed to create new window: ${(error as Error).message}`);
+  }
+}
+
+export async function killWindow(target: string): Promise<void> {
+  await checkTmux();
+  try {
+    await $`tmux kill-window -t ${target}`.quiet();
+  } catch (error) {
+    throw new Error(`Failed to kill window: ${(error as Error).message}`);
+  }
+}
+
 export async function getPaneId(): Promise<string> {
   await checkTmux();
   try {

@@ -7,13 +7,13 @@ import { TaskStatus } from "../types.js";
 const TEST_DB_PATH = "test-orche.db";
 
 // Mock tmux functions
-const mockSplitPane = mock(() => Promise.resolve("%99"));
-const mockKillPane = mock(() => Promise.resolve());
+const mockNewWindow = mock(() => Promise.resolve("@99"));
+const mockKillWindow = mock(() => Promise.resolve());
 
 // Mock the tmux module
 mock.module("../lib/tmux.js", () => ({
-  splitPane: mockSplitPane,
-  killPane: mockKillPane,
+  newWindow: mockNewWindow,
+  killWindow: mockKillWindow,
   checkTmux: () => Promise.resolve(),
 }));
 
@@ -22,8 +22,8 @@ describe("orcheHandlers", () => {
     process.env.DB_PATH = TEST_DB_PATH;
     process.env.PROJECT_ROOT = "/tmp/test-project";
     getDb();
-    mockSplitPane.mockClear();
-    mockKillPane.mockClear();
+    mockNewWindow.mockClear();
+    mockKillWindow.mockClear();
   });
 
   afterEach(async () => {
