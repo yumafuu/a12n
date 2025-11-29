@@ -2,6 +2,7 @@ import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import * as db from "../lib/db.js";
 import * as tmux from "../lib/tmux.js";
+import { setWindowStyle, setWindowName } from "../lib/tmux.js";
 import { MessageType, TaskStatus } from "../types.js";
 import type { Message } from "../types.js";
 import { getSocketServer } from "../lib/socket.js";
@@ -223,6 +224,10 @@ export const orcheHandlers = {
     const command = `cd ${worktreePath} && claude --dangerously-skip-permissions --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。まず check_messages を呼んでタスク内容を確認してください。"`;
 
     const windowId = await tmux.newWindow(command);
+
+    // Apply worker colors to the new window
+    await setWindowStyle(windowId, "worker");
+    await setWindowName(windowId, `Worker:${workerId.slice(7, 15)}`);
 
     // Register worker
     await db.registerWorker(workerId, windowId);

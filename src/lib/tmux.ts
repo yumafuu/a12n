@@ -1,5 +1,151 @@
 import { $ } from "bun";
 
+// Role-based color configuration
+// Using distinct colors for easy visual identification
+export const ROLE_COLORS = {
+  planner: {
+    fg: "white",
+    bg: "colour54",      // Purple - for human interaction
+    border: "colour54",
+  },
+  orche: {
+    fg: "white",
+    bg: "colour24",      // Blue - orchestrator
+    border: "colour24",
+  },
+  reviewer: {
+    fg: "black",
+    bg: "colour142",     // Yellow/olive - reviewer
+    border: "colour142",
+  },
+  worker: {
+    fg: "white",
+    bg: "colour22",      // Green - workers
+    border: "colour22",
+    paneBg: "colour234", // Very dark gray for subtle background tint
+  },
+} as const;
+
+export type RoleType = keyof typeof ROLE_COLORS;
+
+// Helper function to run tmux commands with proper error handling
+async function runTmuxCommand(args: string[]): Promise<string> {
+  const proc = Bun.spawn(["tmux", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const output = await new Response(proc.stdout).text();
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(`tmux command failed: ${stderr}`);
+  }
+
+  return output.trim();
+}
+
+// Set pane border style for same-window roles (Orche, Reviewer)
+export async function setPaneBorderColor(
+  paneId: string,
+  role: RoleType
+): Promise<void> {
+  await checkTmux();
+  const color = ROLE_COLORS[role];
+
+  try {
+    // Set pane style (foreground color)
+    await runTmuxCommand([
+      "select-pane", "-t", paneId, "-P", `fg=${color.fg},bg=default`
+    ]);
+
+    // Set pane-specific border style
+    await runTmuxCommand([
+      "set-option", "-t", paneId, "-p", "pane-border-style", `fg=${color.border}`
+    ]);
+
+    // Set active border style
+    await runTmuxCommand([
+      "set-option", "-t", paneId, "-p", "pane-active-border-style", `fg=${color.border},bold`
+    ]);
+  } catch (error) {
+    throw new Error(`Failed to set pane border color: ${(error as Error).message}`);
+  }
+}
+
+// Set pane title for identification
+export async function setPaneTitle(
+  paneId: string,
+  title: string
+): Promise<void> {
+  await checkTmux();
+
+  try {
+    await runTmuxCommand(["select-pane", "-t", paneId, "-T", title]);
+  } catch (error) {
+    throw new Error(`Failed to set pane title: ${(error as Error).message}`);
+  }
+}
+
+// Set window style for Worker windows (background color)
+export async function setWindowStyle(
+  windowId: string,
+  role: RoleType
+): Promise<void> {
+  await checkTmux();
+  const color = ROLE_COLORS[role];
+
+  try {
+    // Get the pane ID of the window's first pane
+    const paneId = await runTmuxCommand([
+      "display-message", "-t", windowId, "-p", "#{pane_id}"
+    ]);
+
+    // Set subtle background tint for worker identification
+    const paneBg = "paneBg" in color ? color.paneBg : "default";
+    await runTmuxCommand([
+      "select-pane", "-t", paneId, "-P", `bg=${paneBg}`
+    ]);
+
+    // Set window status format with color
+    await runTmuxCommand([
+      "set-window-option", "-t", windowId, "window-status-style",
+      `bg=${color.bg},fg=${color.fg}`
+    ]);
+
+    // Set active window status format
+    await runTmuxCommand([
+      "set-window-option", "-t", windowId, "window-status-current-style",
+      `bg=${color.bg},fg=${color.fg},bold`
+    ]);
+
+    // Set pane border colors for worker window
+    await runTmuxCommand([
+      "set-option", "-t", paneId, "-p", "pane-border-style", `fg=${color.border}`
+    ]);
+
+    await runTmuxCommand([
+      "set-option", "-t", paneId, "-p", "pane-active-border-style", `fg=${color.border},bold`
+    ]);
+  } catch (error) {
+    throw new Error(`Failed to set window style: ${(error as Error).message}`);
+  }
+}
+
+// Rename window with role prefix
+export async function setWindowName(
+  windowId: string,
+  name: string
+): Promise<void> {
+  await checkTmux();
+
+  try {
+    await runTmuxCommand(["rename-window", "-t", windowId, name]);
+  } catch (error) {
+    throw new Error(`Failed to rename window: ${(error as Error).message}`);
+  }
+}
+
 export async function checkTmux(): Promise<void> {
   try {
     await $`which tmux`.quiet();
