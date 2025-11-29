@@ -7,6 +7,9 @@ import { getSocketClient } from "../lib/socket.js";
 // Queue for messages received via socket
 const socketMessageQueue: Message[] = [];
 
+// Set to track processed message IDs to prevent duplicates
+const processedMessageIds = new Set<string>();
+
 // Setup socket message handler
 export function setupSocketMessageHandler(): void {
   const socketClient = getSocketClient("reviewer", "reviewer");
@@ -76,9 +79,21 @@ export const reviewerHandlers = {
     }
     const allMessages = Array.from(messageMap.values());
 
+    // Filter for REVIEW_REQUEST messages only and exclude already processed ones
+    const reviewRequests = allMessages.filter(
+      (m) =>
+        m.type === MessageType.REVIEW_REQUEST &&
+        !processedMessageIds.has(m.id)
+    );
+
+    // Mark these messages as processed
+    for (const msg of reviewRequests) {
+      processedMessageIds.add(msg.id);
+    }
+
     return JSON.stringify({
       success: true,
-      messages: allMessages.map((m) => ({
+      messages: reviewRequests.map((m) => ({
         id: m.id,
         from: m.from,
         type: m.type,
@@ -86,7 +101,7 @@ export const reviewerHandlers = {
         timestamp: new Date(m.timestamp).toISOString(),
       })),
       last_id: lastId,
-      count: allMessages.length,
+      count: reviewRequests.length,
     });
   },
 
