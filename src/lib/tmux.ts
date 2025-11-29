@@ -22,10 +22,28 @@ export const ROLE_COLORS = {
     fg: "white",
     bg: "colour22",      // Green - workers
     border: "colour22",
+    paneBg: "colour234", // Very dark gray for subtle background tint
   },
 } as const;
 
 export type RoleType = keyof typeof ROLE_COLORS;
+
+// Helper function to run tmux commands with proper error handling
+async function runTmuxCommand(args: string[]): Promise<string> {
+  const proc = Bun.spawn(["tmux", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const output = await new Response(proc.stdout).text();
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(`tmux command failed: ${stderr}`);
+  }
+
+  return output.trim();
+}
 
 // Set pane border style for same-window roles (Orche, Reviewer)
 export async function setPaneBorderColor(
@@ -36,58 +54,20 @@ export async function setPaneBorderColor(
   const color = ROLE_COLORS[role];
 
   try {
-    // Set pane border style
-    const proc = Bun.spawn(
-      [
-        "tmux",
-        "select-pane",
-        "-t",
-        paneId,
-        "-P",
-        `fg=${color.fg},bg=default`,
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    await proc.exited;
+    // Set pane style (foreground color)
+    await runTmuxCommand([
+      "select-pane", "-t", paneId, "-P", `fg=${color.fg},bg=default`
+    ]);
 
-    // Set pane-specific border style using pane-border-style
-    // This sets the border color when this pane is active
-    const proc2 = Bun.spawn(
-      [
-        "tmux",
-        "set-option",
-        "-t",
-        paneId,
-        "-p",
-        "pane-border-style",
-        `fg=${color.border}`,
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    await proc2.exited;
+    // Set pane-specific border style
+    await runTmuxCommand([
+      "set-option", "-t", paneId, "-p", "pane-border-style", `fg=${color.border}`
+    ]);
 
-    const proc3 = Bun.spawn(
-      [
-        "tmux",
-        "set-option",
-        "-t",
-        paneId,
-        "-p",
-        "pane-active-border-style",
-        `fg=${color.border},bold`,
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    await proc3.exited;
+    // Set active border style
+    await runTmuxCommand([
+      "set-option", "-t", paneId, "-p", "pane-active-border-style", `fg=${color.border},bold`
+    ]);
   } catch (error) {
     throw new Error(`Failed to set pane border color: ${(error as Error).message}`);
   }
@@ -101,14 +81,7 @@ export async function setPaneTitle(
   await checkTmux();
 
   try {
-    const proc = Bun.spawn(
-      ["tmux", "select-pane", "-t", paneId, "-T", title],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    await proc.exited;
+    await runTmuxCommand(["select-pane", "-t", paneId, "-T", title]);
   } catch (error) {
     throw new Error(`Failed to set pane title: ${(error as Error).message}`);
   }
@@ -124,102 +97,36 @@ export async function setWindowStyle(
 
   try {
     // Get the pane ID of the window's first pane
-    const proc1 = Bun.spawn(
-      ["tmux", "display-message", "-t", windowId, "-p", "#{pane_id}"],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    const paneId = (await new Response(proc1.stdout).text()).trim();
-    await proc1.exited;
+    const paneId = await runTmuxCommand([
+      "display-message", "-t", windowId, "-p", "#{pane_id}"
+    ]);
 
     // Set subtle background tint for worker identification
-    // Using a dark variant to not interfere with readability
-    const proc2 = Bun.spawn(
-      [
-        "tmux",
-        "select-pane",
-        "-t",
-        paneId,
-        "-P",
-        `bg=colour234`,  // Very dark gray as base
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    await proc2.exited;
+    const paneBg = "paneBg" in color ? color.paneBg : "default";
+    await runTmuxCommand([
+      "select-pane", "-t", paneId, "-P", `bg=${paneBg}`
+    ]);
 
     // Set window status format with color
-    const proc3 = Bun.spawn(
-      [
-        "tmux",
-        "set-window-option",
-        "-t",
-        windowId,
-        "window-status-style",
-        `bg=${color.bg},fg=${color.fg}`,
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    await proc3.exited;
+    await runTmuxCommand([
+      "set-window-option", "-t", windowId, "window-status-style",
+      `bg=${color.bg},fg=${color.fg}`
+    ]);
 
     // Set active window status format
-    const proc4 = Bun.spawn(
-      [
-        "tmux",
-        "set-window-option",
-        "-t",
-        windowId,
-        "window-status-current-style",
-        `bg=${color.bg},fg=${color.fg},bold`,
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    await proc4.exited;
+    await runTmuxCommand([
+      "set-window-option", "-t", windowId, "window-status-current-style",
+      `bg=${color.bg},fg=${color.fg},bold`
+    ]);
 
     // Set pane border colors for worker window
-    const proc5 = Bun.spawn(
-      [
-        "tmux",
-        "set-option",
-        "-t",
-        paneId,
-        "-p",
-        "pane-border-style",
-        `fg=${color.border}`,
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    await proc5.exited;
+    await runTmuxCommand([
+      "set-option", "-t", paneId, "-p", "pane-border-style", `fg=${color.border}`
+    ]);
 
-    const proc6 = Bun.spawn(
-      [
-        "tmux",
-        "set-option",
-        "-t",
-        paneId,
-        "-p",
-        "pane-active-border-style",
-        `fg=${color.border},bold`,
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    await proc6.exited;
+    await runTmuxCommand([
+      "set-option", "-t", paneId, "-p", "pane-active-border-style", `fg=${color.border},bold`
+    ]);
   } catch (error) {
     throw new Error(`Failed to set window style: ${(error as Error).message}`);
   }
@@ -233,14 +140,7 @@ export async function setWindowName(
   await checkTmux();
 
   try {
-    const proc = Bun.spawn(
-      ["tmux", "rename-window", "-t", windowId, name],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
-    );
-    await proc.exited;
+    await runTmuxCommand(["rename-window", "-t", windowId, name]);
   } catch (error) {
     throw new Error(`Failed to rename window: ${(error as Error).message}`);
   }
