@@ -4,11 +4,16 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { orcheTools, orcheHandlers } from "./tools/orche.js";
-import { workerTools, workerHandlers } from "./tools/worker.js";
-import { plannerTools, plannerHandlers } from "./tools/planner.js";
-import { reviewerTools, reviewerHandlers } from "./tools/reviewer.js";
+import { orcheTools, orcheHandlers, setupSocketMessageHandler as setupOrcheSocketHandler } from "./tools/orche.js";
+import { workerTools, workerHandlers, setupSocketMessageHandler } from "./tools/worker.js";
+import { plannerTools, plannerHandlers, setupSocketMessageHandler as setupPlannerSocketHandler } from "./tools/planner.js";
+import { reviewerTools, reviewerHandlers, setupSocketMessageHandler as setupReviewerSocketHandler } from "./tools/reviewer.js";
 import type { Role } from "./types.js";
+import {
+  getSocketServer,
+  getSocketClient,
+  cleanupSocket,
+} from "./lib/socket.js";
 
 // Parse command line arguments
 function parseArgs(): { role: Role; workerId?: string } {
@@ -163,15 +168,52 @@ async function main() {
   if (role === "orche") {
     startWatcher();
 
+    // Start socket server for orche
+    const socketServer = getSocketServer();
+    await socketServer.start();
+    console.error("Socket server started");
+
+    // Setup socket message handler for orche
+    setupOrcheSocketHandler();
+
     // Cleanup on exit
-    process.on("exit", stopWatcher);
+    process.on("exit", () => {
+      stopWatcher();
+      cleanupSocket();
+    });
     process.on("SIGINT", () => {
       stopWatcher();
-      process.exit(0);
+      cleanupSocket().then(() => process.exit(0));
     });
     process.on("SIGTERM", () => {
       stopWatcher();
-      process.exit(0);
+      cleanupSocket().then(() => process.exit(0));
+    });
+  } else {
+    // Start socket client for planner/reviewer/worker
+    const clientId = workerId || role;
+    const socketClient = getSocketClient(clientId, role);
+    await socketClient.connect();
+    console.error(`Socket client connected for ${role} (${clientId})`);
+
+    // Setup socket message handler based on role
+    if (role === "worker") {
+      setupSocketMessageHandler();
+    } else if (role === "planner") {
+      setupPlannerSocketHandler();
+    } else if (role === "reviewer") {
+      setupReviewerSocketHandler();
+    }
+
+    // Cleanup on exit
+    process.on("exit", () => {
+      cleanupSocket();
+    });
+    process.on("SIGINT", () => {
+      cleanupSocket().then(() => process.exit(0));
+    });
+    process.on("SIGTERM", () => {
+      cleanupSocket().then(() => process.exit(0));
     });
   }
 

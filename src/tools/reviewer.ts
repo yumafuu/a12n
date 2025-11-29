@@ -1,6 +1,22 @@
 import { z } from "zod";
 import * as db from "../lib/db.js";
 import { MessageType, TaskStatus } from "../types.js";
+import type { Message } from "../types.js";
+import { getSocketClient } from "../lib/socket.js";
+
+// Queue for messages received via socket
+const socketMessageQueue: Message[] = [];
+
+// Setup socket message handler
+export function setupSocketMessageHandler(): void {
+  const socketClient = getSocketClient("reviewer", "reviewer");
+  socketClient.onMessage((message) => {
+    // Queue messages for reviewer
+    if (message.to === "reviewer") {
+      socketMessageQueue.push(message);
+    }
+  });
+}
 
 // Tool definitions for reviewer
 export const reviewerTools = [
@@ -39,16 +55,30 @@ let lastMessageId = "0";
 // Tool handlers
 export const reviewerHandlers = {
   async check_messages(params: { last_id?: string }): Promise<string> {
-    const { messages, lastId } = await db.checkMessages(
+    // First, check socket queue for real-time messages
+    const socketMessages = socketMessageQueue.splice(0);
+
+    // Also check database for any missed messages (fallback)
+    const { messages: dbMessages, lastId } = await db.checkMessages(
       "reviewer",
       params.last_id || lastMessageId
     );
 
     lastMessageId = lastId;
 
+    // Merge and dedupe messages
+    const messageMap = new Map<string, Message>();
+    for (const msg of dbMessages) {
+      messageMap.set(msg.id, msg);
+    }
+    for (const msg of socketMessages) {
+      messageMap.set(msg.id, msg);
+    }
+    const allMessages = Array.from(messageMap.values());
+
     return JSON.stringify({
       success: true,
-      messages: messages.map((m) => ({
+      messages: allMessages.map((m) => ({
         id: m.id,
         from: m.from,
         type: m.type,
@@ -56,7 +86,7 @@ export const reviewerHandlers = {
         timestamp: new Date(m.timestamp).toISOString(),
       })),
       last_id: lastId,
-      count: messages.length,
+      count: allMessages.length,
     });
   },
 
