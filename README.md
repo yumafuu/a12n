@@ -3,9 +3,28 @@
 Claude CLI を自律型エージェントとして動作させる MCP 実装。
 tmux 上で orchestrator (orche) と worker が協調してタスクを実行する。
 
-## セットアップ
+## インストール
+
+### グローバルインストール (推奨)
+
+GitHub から直接グローバルインストール:
 
 ```bash
+bun install -g github:yumafuu/aiorchestration
+```
+
+インストール後は `aio` コマンドで起動できます:
+
+```bash
+tmux new -s a12n
+aio
+```
+
+### ローカル開発用
+
+```bash
+git clone https://github.com/yumafuu/aiorchestration.git
+cd aiorchestration
 bun install
 ```
 
