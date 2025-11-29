@@ -42,7 +42,9 @@ export async function splitPane(
   await checkTmux();
   try {
     const dirFlag = direction === "horizontal" ? "-h" : "-v";
-    const args = [dirFlag];
+
+    // Build command array for proper escaping
+    const args: string[] = ["tmux", "split-window", dirFlag];
 
     if (target) {
       args.push("-t", target);
@@ -51,12 +53,28 @@ export async function splitPane(
     // Return the new pane ID
     args.push("-P", "-F", "#{pane_id}");
 
-    if (command) {
-      args.push(command);
+    const proc = Bun.spawn(args, {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const output = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new Error(stderr);
     }
 
-    const result = await $`tmux split-window ${args}`.text();
-    return result.trim();
+    const paneId = output.trim();
+
+    // If command provided, send it to the new pane via send-keys
+    // This allows shell expansion like $(...)
+    if (command) {
+      await sendKeys(paneId, command, true);
+    }
+
+    return paneId;
   } catch (error) {
     throw new Error(`Failed to split pane: ${(error as Error).message}`);
   }
@@ -69,10 +87,20 @@ export async function sendKeys(
 ): Promise<void> {
   await checkTmux();
   try {
+    const args = ["tmux", "send-keys", "-t", target, keys];
     if (enter) {
-      await $`tmux send-keys -t ${target} ${keys} Enter`.quiet();
-    } else {
-      await $`tmux send-keys -t ${target} ${keys}`.quiet();
+      args.push("Enter");
+    }
+
+    const proc = Bun.spawn(args, {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new Error(stderr);
     }
   } catch (error) {
     throw new Error(`Failed to send keys: ${(error as Error).message}`);
