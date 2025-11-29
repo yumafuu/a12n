@@ -15,11 +15,12 @@ describe("types", () => {
       expect(MessageType.REVIEW_REQUEST).toBe("REVIEW_REQUEST");
       expect(MessageType.REVIEW_RESULT).toBe("REVIEW_RESULT");
       expect(MessageType.TASK_COMPLETE).toBe("TASK_COMPLETE");
+      expect(MessageType.EMERGENCY_STOP).toBe("EMERGENCY_STOP");
     });
 
     test("should be immutable (const assertion)", () => {
       const types = Object.keys(MessageType);
-      expect(types).toHaveLength(7);
+      expect(types).toHaveLength(8);
     });
   });
 
