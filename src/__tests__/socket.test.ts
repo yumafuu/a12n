@@ -108,8 +108,8 @@ describe("Socket Server and Client", () => {
     const receivedByWorker1: Message[] = [];
     const receivedByWorker2: Message[] = [];
 
-    worker1.onMessage((msg) => receivedByWorker1.push(msg));
-    worker2.onMessage((msg) => receivedByWorker2.push(msg));
+    worker1.onMessage((msg) => { receivedByWorker1.push(msg); });
+    worker2.onMessage((msg) => { receivedByWorker2.push(msg); });
 
     // Simulate orche sending a message to worker-1
     const messageToWorker1: Message = {
