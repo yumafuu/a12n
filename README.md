@@ -20,6 +20,14 @@ tmux new -s a12n
 ### 2. Orchestrator として Claude を起動
 
 ```bash
+claude --mcp-config /path/to/a12n/orche.json --system-prompt "$(cat /path/to/a12n/orche-prompt.md)"
+```
+
+または、CLAUDE.md にプロンプトを追加してプロジェクトディレクトリで起動:
+
+```bash
+cd /path/to/your/project
+cat /path/to/a12n/orche-prompt.md >> CLAUDE.md
 claude --mcp-config /path/to/a12n/orche.json
 ```
 
