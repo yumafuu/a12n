@@ -2,6 +2,9 @@
   "name": "aiorchestration",
   "version": "0.1.0",
   "type": "module",
+  "bin": {
+    "aio": "./scripts/start.ts"
+  },
   "scripts": {
     "start": "bun run scripts/start.ts",
     "dev:planner": "bun run src/mcp-server.ts --role planner",
