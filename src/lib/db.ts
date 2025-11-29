@@ -83,10 +83,20 @@ function initSchema(): void {
     )
   `);
 
+  database.run(`
+    CREATE TABLE IF NOT EXISTS message_reads (
+      message_id TEXT NOT NULL,
+      reader_id TEXT NOT NULL,
+      read_at INTEGER NOT NULL,
+      PRIMARY KEY (message_id, reader_id)
+    )
+  `);
+
   // Create indexes
   database.run(`CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_id)`);
   database.run(`CREATE INDEX IF NOT EXISTS idx_messages_seq ON messages(seq)`);
   database.run(`CREATE INDEX IF NOT EXISTS idx_workers_heartbeat ON workers(last_heartbeat)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_message_reads_reader ON message_reads(reader_id)`);
 }
 
 // Auto-increment for message sequence
@@ -133,18 +143,19 @@ export async function sendMessage(
 
 export async function checkMessages(
   recipient: string,
-  lastSeq: string = "0"
-): Promise<{ messages: Message[]; lastId: string }> {
+  readerId: string
+): Promise<{ messages: Message[] }> {
   const database = getDb();
-  const lastSeqNum = parseInt(lastSeq) || 0;
 
+  // Get unread messages using LEFT JOIN with message_reads
   const rows = database.query(
-    `SELECT id, seq, timestamp, from_id, to_id, type, payload
-     FROM messages
-     WHERE to_id = ? AND seq > ?
-     ORDER BY seq ASC
+    `SELECT m.id, m.seq, m.timestamp, m.from_id, m.to_id, m.type, m.payload
+     FROM messages m
+     LEFT JOIN message_reads r ON m.id = r.message_id AND r.reader_id = ?
+     WHERE m.to_id = ? AND r.message_id IS NULL
+     ORDER BY m.seq ASC
      LIMIT 100`
-  ).all(recipient, lastSeqNum) as Array<{
+  ).all(readerId, recipient) as Array<{
     id: string;
     seq: number;
     timestamp: number;
@@ -163,9 +174,18 @@ export async function checkMessages(
     payload: JSON.parse(row.payload),
   }));
 
-  const newLastId = rows.length > 0 ? rows[rows.length - 1].seq.toString() : lastSeq;
+  // Mark messages as read
+  if (messages.length > 0) {
+    const now = Date.now();
+    const insertStmt = database.prepare(
+      `INSERT OR IGNORE INTO message_reads (message_id, reader_id, read_at) VALUES (?, ?, ?)`
+    );
+    for (const msg of messages) {
+      insertStmt.run(msg.id, readerId, now);
+    }
+  }
 
-  return { messages, lastId: newLastId };
+  return { messages };
 }
 
 // Task operations
@@ -425,3 +445,4 @@ export function saveWatcherSeq(recipient: string, seq: number): void {
     [recipient, seq]
   );
 }
+

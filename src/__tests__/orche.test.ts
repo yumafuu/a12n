@@ -47,20 +47,11 @@ describe("orcheHandlers", () => {
 
   describe("check_messages", () => {
     test("should return empty messages initially", async () => {
-      const result = JSON.parse(await orcheHandlers.check_messages({}));
+      const result = JSON.parse(await orcheHandlers.check_messages());
 
       expect(result.success).toBe(true);
       expect(result.messages).toHaveLength(0);
       expect(result.count).toBe(0);
-    });
-
-    test("should accept last_id parameter", async () => {
-      const result = JSON.parse(
-        await orcheHandlers.check_messages({ last_id: "5" })
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.messages).toHaveLength(0);
     });
   });
 
