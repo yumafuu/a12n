@@ -1,6 +1,6 @@
 import { z } from "zod";
 import * as db from "../lib/db.js";
-import { MessageType, TaskStatus } from "../types.js";
+import { MessageType } from "../types.js";
 
 // Tool definitions for planner
 export const plannerTools = [
@@ -14,7 +14,7 @@ export const plannerTools = [
   },
   {
     name: "check_messages",
-    description: "Check for messages from orchestrator (task status, review requests)",
+    description: "Check for messages from orchestrator (task status, completion reports)",
     inputSchema: z.object({
       last_id: z
         .string()
@@ -23,30 +23,9 @@ export const plannerTools = [
     }),
   },
   {
-    name: "send_review_result",
-    description: "Send review result back to orchestrator",
-    inputSchema: z.object({
-      task_id: z.string().describe("Task ID"),
-      approved: z.boolean().describe("Whether the task is approved"),
-      feedback: z.string().optional().describe("Feedback for the worker"),
-    }),
-  },
-  {
     name: "list_tasks",
     description: "List all tasks and their status",
     inputSchema: z.object({}),
-  },
-  {
-    name: "send_message_to_ui",
-    description:
-      "Send a message to the UI (for questions or reports to the human)",
-    inputSchema: z.object({
-      type: z
-        .enum(["QUESTION", "REPORT", "STATUS"])
-        .describe("Message type: QUESTION for clarification, REPORT for completion, STATUS for updates"),
-      message: z.string().describe("Message content"),
-      task_id: z.string().optional().describe("Related task ID if applicable"),
-    }),
   },
 ] as const;
 
@@ -100,38 +79,6 @@ export const plannerHandlers = {
     });
   },
 
-  async send_review_result(params: {
-    task_id: string;
-    approved: boolean;
-    feedback?: string;
-  }): Promise<string> {
-    const messageId = await db.sendMessage(
-      "orche",
-      "planner",
-      MessageType.REVIEW_RESULT,
-      {
-        task_id: params.task_id,
-        approved: params.approved,
-        feedback: params.feedback,
-      }
-    );
-
-    // Update task status
-    if (params.approved) {
-      await db.updateTaskStatus(params.task_id, TaskStatus.COMPLETED);
-    } else {
-      await db.updateTaskStatus(params.task_id, TaskStatus.IN_PROGRESS);
-    }
-
-    return JSON.stringify({
-      success: true,
-      message_id: messageId,
-      message: params.approved
-        ? `Task ${params.task_id} approved`
-        : `Task ${params.task_id} needs revision`,
-    });
-  },
-
   async list_tasks(): Promise<string> {
     const tasks = await db.listAllTasks();
 
@@ -142,33 +89,11 @@ export const plannerHandlers = {
         status: t.status,
         worker_id: t.worker_id,
         description: t.description,
+        pr_url: t.pr_url,
         created_at: new Date(t.created_at).toISOString(),
         updated_at: new Date(t.updated_at).toISOString(),
       })),
       count: tasks.length,
-    });
-  },
-
-  async send_message_to_ui(params: {
-    type: "QUESTION" | "REPORT" | "STATUS";
-    message: string;
-    task_id?: string;
-  }): Promise<string> {
-    const messageId = await db.sendMessage(
-      "ui",
-      "planner",
-      MessageType.PROGRESS,
-      {
-        task_id: params.task_id || "",
-        status: params.type,
-        message: params.message,
-      }
-    );
-
-    return JSON.stringify({
-      success: true,
-      message_id: messageId,
-      message: `Message sent to UI: ${params.type}`,
     });
   },
 };

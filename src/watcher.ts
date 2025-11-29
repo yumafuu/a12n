@@ -5,12 +5,12 @@ import { $ } from "bun";
 const POLL_INTERVAL_MS = 2000;
 const DB_PATH = process.env.DB_PATH || "aiorchestration.db";
 const ORCHE_PANE = process.env.ORCHE_PANE || "";
-const PLANNER_PANE = process.env.PLANNER_PANE || "";
+const REVIEWER_PANE = process.env.REVIEWER_PANE || "";
 
 // Track last checked sequence for each recipient
 const lastCheckedSeq: Record<string, number> = {
   orche: 0,
-  planner: 0,
+  reviewer: 0,
 };
 
 // Track worker pane IDs
@@ -20,20 +20,19 @@ function getDb(): Database {
   return new Database(DB_PATH, { readonly: true });
 }
 
-async function getPanes(): Promise<{ orche: string; planner: string }> {
+async function getPanes(): Promise<{ orche: string; reviewer: string }> {
   let orchePane = ORCHE_PANE;
-  let plannerPane = PLANNER_PANE;
+  let reviewerPane = REVIEWER_PANE;
 
-  if (!orchePane || !plannerPane) {
-    // Get all panes - assume planner is pane 0 (left), orche is pane 1 (right)
+  if (!orchePane || !reviewerPane) {
+    // Try to get panes from environment or list
     try {
       const result = await $`tmux list-panes -F "#{pane_id}"`.text();
       const panes = result.trim().split("\n");
       if (panes.length >= 2) {
-        plannerPane = plannerPane || panes[0];
-        orchePane = orchePane || panes[1];
+        orchePane = orchePane || panes[0];
+        reviewerPane = reviewerPane || panes[1];
       } else if (panes.length === 1) {
-        // Only one pane, assume it's orche
         orchePane = orchePane || panes[0];
       }
     } catch {
@@ -41,7 +40,7 @@ async function getPanes(): Promise<{ orche: string; planner: string }> {
     }
   }
 
-  return { orche: orchePane, planner: plannerPane };
+  return { orche: orchePane, reviewer: reviewerPane };
 }
 
 async function checkForNewMessages(
@@ -116,23 +115,19 @@ function buildNotificationPrompt(
     if (messageTypes.includes("TASK_ASSIGN")) {
       return "Planner からタスクが来ています。check_messages を呼んで確認し、spawn_worker でワーカーを起動してください。";
     } else if (messageTypes.includes("REVIEW_RESULT")) {
-      return "Planner からレビュー結果が来ています。check_messages を呼んで確認し、Worker に転送してください。";
+      return "Reviewer からレビュー結果が来ています。check_messages を呼んで確認し、Worker に転送してください。";
     } else if (messageTypes.includes("QUESTION")) {
       return "Worker から質問が来ています。check_messages を呼んで確認し、回答してください。";
     } else if (messageTypes.includes("REVIEW_REQUEST")) {
-      return "Worker からレビュー依頼が来ています。check_messages を呼んで確認してください（自動で Planner に転送されます）。";
+      return "Worker からレビュー依頼が来ています。check_messages を呼んで確認してください（自動で Reviewer に転送されます）。";
     } else if (messageTypes.includes("PROGRESS")) {
       return "Worker から進捗報告が来ています。check_messages を呼んで確認してください。";
     } else {
       return "新しいメッセージが来ています。check_messages を呼んで確認してください。";
     }
-  } else if (recipient === "planner") {
-    if (messageTypes.includes("TASK_ASSIGN")) {
-      return "UI からタスクが来ています。check_messages を呼んで確認し、要件を整理して orche に送信してください。";
-    } else if (messageTypes.includes("REVIEW_REQUEST")) {
-      return "Orche からレビュー依頼が転送されました。check_messages を呼んで確認し、レビューしてください。";
-    } else if (messageTypes.includes("QUESTION")) {
-      return "質問が来ています。check_messages を呼んで確認し、回答してください。";
+  } else if (recipient === "reviewer") {
+    if (messageTypes.includes("REVIEW_REQUEST")) {
+      return "Orche からレビュー依頼が来ています。check_messages を呼んで確認し、PR をレビューしてください。";
     } else {
       return "新しいメッセージが来ています。check_messages を呼んで確認してください。";
     }
@@ -190,17 +185,17 @@ async function main(): Promise<void> {
   console.log(`[watcher] Poll interval: ${POLL_INTERVAL_MS}ms`);
 
   const panes = await getPanes();
-  console.log(`[watcher] Planner pane: ${panes.planner || "(not found)"}`);
   console.log(`[watcher] Orche pane: ${panes.orche || "(not found)"}`);
+  console.log(`[watcher] Reviewer pane: ${panes.reviewer || "(not found)"}`);
 
-  if (!panes.orche && !panes.planner) {
+  if (!panes.orche && !panes.reviewer) {
     console.error("[watcher] Could not determine any panes. Exiting.");
     process.exit(1);
   }
 
-  // Initialize lastCheckedSeq from current max
+  // Initialize lastCheckedSeq
   await initializeSeq("orche");
-  await initializeSeq("planner");
+  await initializeSeq("reviewer");
 
   // Main loop
   while (true) {
@@ -219,17 +214,17 @@ async function main(): Promise<void> {
         );
       }
 
-      // Check messages for planner
-      const plannerMessages = await checkForNewMessages("planner");
-      if (plannerMessages.count > 0) {
+      // Check messages for reviewer
+      const reviewerMessages = await checkForNewMessages("reviewer");
+      if (reviewerMessages.count > 0) {
         console.log(
-          `[watcher] Found ${plannerMessages.count} new message(s) for planner: ${plannerMessages.types.join(", ")}`
+          `[watcher] Found ${reviewerMessages.count} new message(s) for reviewer: ${reviewerMessages.types.join(", ")}`
         );
         await notify(
-          panes.planner,
-          "planner",
-          plannerMessages.types,
-          plannerMessages.from
+          panes.reviewer,
+          "reviewer",
+          reviewerMessages.types,
+          reviewerMessages.from
         );
       }
 

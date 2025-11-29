@@ -7,7 +7,7 @@ import {
 import { orcheTools, orcheHandlers } from "./tools/orche.js";
 import { workerTools, workerHandlers } from "./tools/worker.js";
 import { plannerTools, plannerHandlers } from "./tools/planner.js";
-import { uiTools, uiHandlers } from "./tools/ui.js";
+import { reviewerTools, reviewerHandlers } from "./tools/reviewer.js";
 import type { Role } from "./types.js";
 
 // Parse command line arguments
@@ -190,15 +190,15 @@ async function main() {
   // Get tools based on role
   let tools;
   let handlers;
-  if (role === "ui") {
-    tools = uiTools;
-    handlers = uiHandlers;
-  } else if (role === "planner") {
+  if (role === "planner") {
     tools = plannerTools;
     handlers = plannerHandlers;
   } else if (role === "orche") {
     tools = orcheTools;
     handlers = orcheHandlers;
+  } else if (role === "reviewer") {
+    tools = reviewerTools;
+    handlers = reviewerHandlers;
   } else {
     tools = workerTools;
     handlers = workerHandlers;

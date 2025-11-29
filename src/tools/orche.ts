@@ -364,7 +364,7 @@ export const orcheHandlers = {
     // Process messages
     for (const msg of messages) {
       if (msg.type === MessageType.REVIEW_REQUEST) {
-        // Forward REVIEW_REQUEST to planner
+        // Forward REVIEW_REQUEST to reviewer
         const payload = msg.payload as { task_id: string; summary: string; files?: string[]; pr_url?: string };
         await db.updateTaskStatus(payload.task_id, TaskStatus.REVIEW);
 
@@ -373,7 +373,7 @@ export const orcheHandlers = {
           await db.updateTaskPrUrl(payload.task_id, payload.pr_url);
         }
 
-        await db.sendMessage("planner", "orche", MessageType.REVIEW_REQUEST, payload);
+        await db.sendMessage("reviewer", "orche", MessageType.REVIEW_REQUEST, payload);
       } else if (msg.type === MessageType.TASK_ASSIGN && msg.from === "planner") {
         // Handle task from planner - spawn worker
         const payload = msg.payload as { description: string; context?: string };

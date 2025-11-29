@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Startup script for aiorchestration
- * - UI runs in the current pane (for human interaction, no interrupts)
- * - Planner, Orche, and workers run in a separate window (autonomous)
+ * - Planner runs in the current pane (for human interaction)
+ * - Orche, Reviewer, and workers run in a separate window (autonomous)
  */
 
 // Generate unique window name: {dirname}-{4char uid}
@@ -42,39 +42,19 @@ async function main() {
     process.exit(1);
   }
 
-  // Get current pane ID (will be used for UI)
-  const uiPane = await runCommand([
-    "tmux",
-    "display-message",
-    "-p",
-    "#{pane_id}",
-  ]);
-
-  // Create new window for planner, orche, and workers
-  console.log(`Creating agents window: ${WINDOW_NAME}`);
-  await runCommand(["tmux", "new-window", "-d", "-n", WINDOW_NAME]);
-
-  // Split the new window horizontally: left=planner, right=orche
-  // First get the planner pane (the initial pane in new window)
+  // Get current pane ID (will be used for planner)
   const plannerPane = await runCommand([
     "tmux",
     "display-message",
-    "-t",
-    WINDOW_NAME,
     "-p",
     "#{pane_id}",
   ]);
 
-  // Split horizontally for orche
-  await runCommand([
-    "tmux",
-    "split-window",
-    "-t",
-    WINDOW_NAME,
-    "-h",
-  ]);
+  // Create new window for orche, reviewer, and workers
+  console.log(`Creating agents window: ${WINDOW_NAME}`);
+  await runCommand(["tmux", "new-window", "-d", "-n", WINDOW_NAME]);
 
-  // Get orche pane ID (the new pane after split)
+  // Get orche pane (initial pane in new window)
   const orchePane = await runCommand([
     "tmux",
     "display-message",
@@ -84,30 +64,49 @@ async function main() {
     "#{pane_id}",
   ]);
 
-  // Start planner in left pane (autonomous, with initial prompt)
-  const plannerCmd = `claude --dangerously-skip-permissions --mcp-config ${PROJECT_ROOT}/planner.json --system-prompt "$(cat ${PROJECT_ROOT}/planner-prompt.md)" "起動しました。check_messages を呼んで UI からのタスクを確認してください。"`;
-  await runCommand(["tmux", "send-keys", "-t", plannerPane, plannerCmd]);
-  await runCommand(["tmux", "send-keys", "-t", plannerPane, "Enter"]);
+  // Split horizontally for reviewer
+  await runCommand([
+    "tmux",
+    "split-window",
+    "-t",
+    WINDOW_NAME,
+    "-h",
+  ]);
 
-  // Start orche in right pane (with pane IDs for watcher)
-  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} claude --dangerously-skip-permissions --mcp-config ${PROJECT_ROOT}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
+  // Get reviewer pane ID (the new pane after split)
+  const reviewerPane = await runCommand([
+    "tmux",
+    "display-message",
+    "-t",
+    WINDOW_NAME,
+    "-p",
+    "#{pane_id}",
+  ]);
+
+  // Start orche in left pane (with pane IDs for watcher)
+  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} REVIEWER_PANE=${reviewerPane} claude --dangerously-skip-permissions --mcp-config ${PROJECT_ROOT}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
   await runCommand(["tmux", "send-keys", "-t", orchePane, orcheCmd]);
   await runCommand(["tmux", "send-keys", "-t", orchePane, "Enter"]);
 
+  // Start reviewer in right pane
+  const reviewerCmd = `claude --dangerously-skip-permissions --mcp-config ${PROJECT_ROOT}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/reviewer-prompt.md)" "起動しました。check_messages を呼んでレビュー依頼を確認してください。"`;
+  await runCommand(["tmux", "send-keys", "-t", reviewerPane, reviewerCmd]);
+  await runCommand(["tmux", "send-keys", "-t", reviewerPane, "Enter"]);
+
   console.log("");
   console.log("Setup complete!");
-  console.log(`  Current pane (${uiPane}): UI (human interaction)`);
+  console.log(`  Current pane (${plannerPane}): Planner (human interaction)`);
   console.log(`  Window '${WINDOW_NAME}':`);
-  console.log(`    - Left pane (${plannerPane}): Planner (autonomous)`);
-  console.log(`    - Right pane (${orchePane}): Orche (workers spawn here)`);
+  console.log(`    - Left pane (${orchePane}): Orche (workers spawn here)`);
+  console.log(`    - Right pane (${reviewerPane}): Reviewer (autonomous)`);
   console.log("");
-  console.log("Starting UI...");
+  console.log("Starting planner...");
   console.log("");
 
-  // Start UI in current pane (human interaction, no auto-approve)
-  const uiCmd = `claude --mcp-config ${PROJECT_ROOT}/ui.json --system-prompt "$(cat ${PROJECT_ROOT}/ui-prompt.md)"`;
+  // Start planner in current pane (human interaction)
+  const plannerCmd = `claude --mcp-config ${PROJECT_ROOT}/planner.json --system-prompt "$(cat ${PROJECT_ROOT}/planner-prompt.md)"`;
 
-  const proc = Bun.spawn(["bash", "-c", uiCmd], {
+  const proc = Bun.spawn(["bash", "-c", plannerCmd], {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
