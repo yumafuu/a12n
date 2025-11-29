@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "aiorchestration": {
+      "command": "bun",
+      "args": [
+        "run",
+        "/Users/yuma/ghq/github.com/yumafuu/aiorchestration/src/mcp-server.ts",
+        "--role",
+        "worker"
+      ],
+      "env": {
+        "PROJECT_ROOT": "/Users/yuma/ghq/github.com/yumafuu/aiorchestration",
+        "DB_PATH": "/Users/yuma/ghq/github.com/yumafuu/aiorchestration/aiorchestration.db",
+        "WORKER_ID": "worker-80abd662",
+        "TASK_ID": "ci-test-fix-001",
+        "WORKTREE_PATH": "/Users/yuma/ghq/github.com/yumafuu/aiorchestration/.worktrees/worker-80abd662",
+        "BRANCH_NAME": "task/ci-test-"
+      }
+    }
+  }
+}
