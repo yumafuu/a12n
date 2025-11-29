@@ -425,3 +425,11 @@ export function saveWatcherSeq(recipient: string, seq: number): void {
     [recipient, seq]
   );
 }
+
+// Get the current maximum seq from messages table
+// Used to skip past messages on process startup
+export function getCurrentMaxSeq(): number {
+  const database = getDb();
+  const result = database.query("SELECT MAX(seq) as max_seq FROM messages").get() as { max_seq: number | null };
+  return result?.max_seq ?? 0;
+}

@@ -53,18 +53,29 @@ export const reviewerTools = [
 ] as const;
 
 // Store last message ID for pagination
-let lastMessageId = "0";
+// This will be initialized to current max seq on first check_messages call
+// to skip past messages that existed before this process started
+let lastMessageId: string | null = null;
+let isInitialized = false;
 
 // Tool handlers
 export const reviewerHandlers = {
   async check_messages(params: { last_id?: string }): Promise<string> {
+    // Initialize lastMessageId to current max seq on first call
+    // This ensures we skip all messages that existed before this process started
+    if (!isInitialized) {
+      const currentMaxSeq = db.getCurrentMaxSeq();
+      lastMessageId = currentMaxSeq.toString();
+      isInitialized = true;
+    }
+
     // First, check socket queue for real-time messages
     const socketMessages = socketMessageQueue.splice(0);
 
     // Also check database for any missed messages (fallback)
     const { messages: dbMessages, lastId } = await db.checkMessages(
       "reviewer",
-      params.last_id || lastMessageId
+      params.last_id || lastMessageId || "0"
     );
 
     lastMessageId = lastId;
