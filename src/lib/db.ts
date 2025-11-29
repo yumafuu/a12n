@@ -9,6 +9,7 @@ import type {
   Worker,
   WorkerStatus,
 } from "../types.js";
+import { notifyViaSocket } from "./socket.js";
 
 // Heartbeat timeout in milliseconds
 const HEARTBEAT_TIMEOUT_MS = 30000;
@@ -111,6 +112,14 @@ export async function sendMessage(
     `INSERT INTO messages (id, seq, timestamp, from_id, to_id, type, payload) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [message.id, seq, message.timestamp, message.from, message.to, message.type, JSON.stringify(message.payload)]
   );
+
+  // Notify via socket for real-time delivery
+  try {
+    notifyViaSocket(message);
+  } catch (err) {
+    // Socket notification is best-effort, don't fail if it errors
+    console.error("Socket notification failed:", err);
+  }
 
   return message.id;
 }

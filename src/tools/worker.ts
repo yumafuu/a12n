@@ -1,6 +1,25 @@
 import { z } from "zod";
 import * as db from "../lib/db.js";
 import { MessageType, TaskStatus } from "../types.js";
+import type { Message } from "../types.js";
+import { getSocketClient } from "../lib/socket.js";
+
+// Queue for messages received via socket
+const socketMessageQueue: Message[] = [];
+
+// Setup socket message handler
+export function setupSocketMessageHandler(): void {
+  const workerId = process.env.WORKER_ID;
+  if (!workerId) return;
+
+  const socketClient = getSocketClient(workerId, "worker");
+  socketClient.onMessage((message) => {
+    // Queue messages for this worker
+    if (message.to === workerId) {
+      socketMessageQueue.push(message);
+    }
+  });
+}
 
 // Get worker ID from environment
 function getWorkerId(): string {
@@ -83,8 +102,11 @@ export const workerHandlers = {
     // Update heartbeat
     await db.updateWorkerHeartbeat(workerId);
 
-    // Check messages
-    const { messages, lastId } = await db.checkMessages(
+    // First, check socket queue for real-time messages
+    const socketMessages = socketMessageQueue.splice(0);
+
+    // Also check database for any missed messages (fallback)
+    const { messages: dbMessages, lastId } = await db.checkMessages(
       workerId,
       params.last_id || lastMessageId
     );
@@ -92,15 +114,28 @@ export const workerHandlers = {
     // Update stored last ID
     lastMessageId = lastId;
 
-    // Check for TASK_COMPLETE message
-    const completeMessage = messages.find(
+    // Merge and dedupe messages (prefer socket messages, then db messages)
+    const messageMap = new Map<string, Message>();
+    for (const msg of dbMessages) {
+      messageMap.set(msg.id, msg);
+    }
+    for (const msg of socketMessages) {
+      messageMap.set(msg.id, msg);
+    }
+    const allMessages = Array.from(messageMap.values());
+
+    // Check for TASK_COMPLETE or EMERGENCY_STOP message
+    const completeMessage = allMessages.find(
       (m) => m.type === MessageType.TASK_COMPLETE
     );
+    const emergencyMessage = allMessages.find(
+      (m) => m.type === MessageType.EMERGENCY_STOP
+    );
 
-    if (completeMessage) {
+    if (emergencyMessage) {
       return JSON.stringify({
         success: true,
-        messages: messages.map((m) => ({
+        messages: allMessages.map((m) => ({
           id: m.id,
           from: m.from,
           type: m.type,
@@ -108,7 +143,24 @@ export const workerHandlers = {
           timestamp: new Date(m.timestamp).toISOString(),
         })),
         last_id: lastId,
-        count: messages.length,
+        count: allMessages.length,
+        should_terminate: true,
+        terminate_reason: "EMERGENCY_STOP received. Stop immediately.",
+      });
+    }
+
+    if (completeMessage) {
+      return JSON.stringify({
+        success: true,
+        messages: allMessages.map((m) => ({
+          id: m.id,
+          from: m.from,
+          type: m.type,
+          payload: m.payload,
+          timestamp: new Date(m.timestamp).toISOString(),
+        })),
+        last_id: lastId,
+        count: allMessages.length,
         should_terminate: true,
         terminate_reason: "TASK_COMPLETE received. Your task is done. You should stop working now.",
       });
@@ -116,7 +168,7 @@ export const workerHandlers = {
 
     return JSON.stringify({
       success: true,
-      messages: messages.map((m) => ({
+      messages: allMessages.map((m) => ({
         id: m.id,
         from: m.from,
         type: m.type,
@@ -124,7 +176,7 @@ export const workerHandlers = {
         timestamp: new Date(m.timestamp).toISOString(),
       })),
       last_id: lastId,
-      count: messages.length,
+      count: allMessages.length,
       should_terminate: false,
     });
   },

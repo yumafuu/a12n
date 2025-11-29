@@ -3,6 +3,22 @@ import { v4 as uuidv4 } from "uuid";
 import * as db from "../lib/db.js";
 import * as tmux from "../lib/tmux.js";
 import { MessageType, TaskStatus } from "../types.js";
+import type { Message } from "../types.js";
+import { getSocketServer } from "../lib/socket.js";
+
+// Queue for messages received via socket
+const socketMessageQueue: Message[] = [];
+
+// Setup socket message handler for orche
+export function setupSocketMessageHandler(): void {
+  const socketServer = getSocketServer();
+  socketServer.onMessage((message) => {
+    // Queue messages for orche
+    if (message.to === "orche") {
+      socketMessageQueue.push(message);
+    }
+  });
+}
 
 // Tool definitions for orchestrator
 export const orcheTools = [
@@ -356,13 +372,27 @@ export const orcheHandlers = {
   },
 
   async check_messages(params: { last_id?: string }): Promise<string> {
-    const { messages, lastId } = await db.checkMessages(
+    // First, check socket queue for real-time messages
+    const socketMessages = socketMessageQueue.splice(0);
+
+    // Also check database for any missed messages (fallback)
+    const { messages: dbMessages, lastId } = await db.checkMessages(
       "orche",
       params.last_id || "0"
     );
 
+    // Merge and dedupe messages
+    const messageMap = new Map<string, Message>();
+    for (const msg of dbMessages) {
+      messageMap.set(msg.id, msg);
+    }
+    for (const msg of socketMessages) {
+      messageMap.set(msg.id, msg);
+    }
+    const allMessages = Array.from(messageMap.values());
+
     // Process messages
-    for (const msg of messages) {
+    for (const msg of allMessages) {
       if (msg.type === MessageType.REVIEW_REQUEST) {
         // Forward REVIEW_REQUEST to reviewer
         const payload = msg.payload as { task_id: string; summary: string; files?: string[]; pr_url?: string };
@@ -383,7 +413,7 @@ export const orcheHandlers = {
 
     return JSON.stringify({
       success: true,
-      messages: messages.map((m) => ({
+      messages: allMessages.map((m) => ({
         id: m.id,
         from: m.from,
         type: m.type,
@@ -391,7 +421,7 @@ export const orcheHandlers = {
         timestamp: new Date(m.timestamp).toISOString(),
       })),
       last_id: lastId,
-      count: messages.length,
+      count: allMessages.length,
     });
   },
 
