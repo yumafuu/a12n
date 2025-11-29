@@ -114,12 +114,59 @@ function zodToJsonSchema(zodSchema: unknown): Record<string, unknown> {
   };
 }
 
+// Store watcher process for cleanup
+let watcherProc: ReturnType<typeof Bun.spawn> | null = null;
+
+function startWatcher(): void {
+  const projectRoot = process.env.PROJECT_ROOT || process.cwd();
+  const watcherPath = `${projectRoot}/src/watcher.ts`;
+
+  console.error(`Starting watcher: ${watcherPath}`);
+
+  watcherProc = Bun.spawn(["bun", "run", watcherPath], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      PROJECT_ROOT: projectRoot,
+      DB_PATH: process.env.DB_PATH || `${projectRoot}/aiorchestration.db`,
+    },
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+
+  console.error(`Watcher started (PID: ${watcherProc.pid})`);
+}
+
+function stopWatcher(): void {
+  if (watcherProc) {
+    console.error("Stopping watcher...");
+    watcherProc.kill();
+    watcherProc = null;
+  }
+}
+
 async function main() {
   const { role, workerId } = parseArgs();
 
   console.error(`Starting MCP server with role: ${role}`);
   if (workerId) {
     console.error(`Worker ID: ${workerId}`);
+  }
+
+  // Start watcher if orche role
+  if (role === "orche") {
+    startWatcher();
+
+    // Cleanup on exit
+    process.on("exit", stopWatcher);
+    process.on("SIGINT", () => {
+      stopWatcher();
+      process.exit(0);
+    });
+    process.on("SIGTERM", () => {
+      stopWatcher();
+      process.exit(0);
+    });
   }
 
   const server = new Server(

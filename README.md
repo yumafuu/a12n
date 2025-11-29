@@ -108,6 +108,8 @@ Human
   ▼
 Claude CLI (orche)
   └── MCP Server (orche tools)
+        ├── Watcher (自動起動)
+        │     └── SQLite 監視 → orche に通知
         ├── tmux pane 作成
         ├── worker 起動
         └── SQLite でメッセージング
@@ -119,5 +121,10 @@ Claude CLI (orche)
         │  └── MCP    │
         └─────────────┘
 ```
+
+### Watcher
+
+MCP サーバー (orche) 起動時に自動的に watcher プロセスが起動します。
+watcher は SQLite を監視し、worker からのメッセージがあると orche に通知します。
 
 詳細は [specification.md](./specification.md) を参照。
