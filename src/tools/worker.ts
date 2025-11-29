@@ -1,5 +1,5 @@
 import { z } from "zod";
-import * as redis from "../lib/redis.js";
+import * as db from "../lib/db.js";
 import { MessageType, TaskStatus } from "../types.js";
 
 // Get worker ID from environment
@@ -62,10 +62,10 @@ export const workerHandlers = {
     const workerId = getWorkerId();
 
     // Update heartbeat
-    await redis.updateWorkerHeartbeat(workerId);
+    await db.updateWorkerHeartbeat(workerId);
 
     // Check messages
-    const { messages, lastId } = await redis.checkMessages(
+    const { messages, lastId } = await db.checkMessages(
       workerId,
       params.last_id || lastMessageId
     );
@@ -118,7 +118,7 @@ export const workerHandlers = {
     const taskId = getTaskId();
 
     // Update heartbeat
-    await redis.updateWorkerHeartbeat(workerId);
+    await db.updateWorkerHeartbeat(workerId);
 
     let payload: Record<string, unknown>;
     try {
@@ -135,7 +135,7 @@ export const workerHandlers = {
       payload.task_id = taskId;
     }
 
-    const messageId = await redis.sendMessage(
+    const messageId = await db.sendMessage(
       "orche",
       workerId,
       params.type as MessageType,
@@ -144,7 +144,7 @@ export const workerHandlers = {
 
     // Update task status if sending review request
     if (params.type === "REVIEW_REQUEST") {
-      await redis.updateTaskStatus(taskId, TaskStatus.REVIEW);
+      await db.updateTaskStatus(taskId, TaskStatus.REVIEW);
     }
 
     return JSON.stringify({
@@ -162,10 +162,10 @@ export const workerHandlers = {
     const taskId = getTaskId();
 
     // Update heartbeat
-    await redis.updateWorkerHeartbeat(workerId);
+    await db.updateWorkerHeartbeat(workerId);
 
     // Send progress message
-    const messageId = await redis.sendMessage(
+    const messageId = await db.sendMessage(
       "orche",
       workerId,
       MessageType.PROGRESS,

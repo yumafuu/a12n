@@ -17,11 +17,11 @@ tmux を UI として使用し、orchestrator (orche) と worker の 2 つのロ
 │  │    └── MCP Server (orche tools)                         │   │
 │  │          ├── tmux pane 作成                              │   │
 │  │          ├── worker 起動                                 │   │
-│  │          ├── Redis: タスク発行 / heartbeat 監視          │   │
+│  │          ├── SQLite: タスク発行 / heartbeat 監視         │   │
 │  │          └── タスク状態管理                              │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │           │                                                     │
-│           │ Redis Streams                                       │
+│           │ SQLite                                               │
 │           ▼                                                     │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
 │  │ Claude CLI  │  │ Claude CLI  │  │ Claude CLI  │             │
@@ -41,14 +41,14 @@ tmux を UI として使用し、orchestrator (orche) と worker の 2 つのロ
 |------|------|
 | 実装言語 | Bun (TypeScript) |
 | UI | tmux |
-| メッセージバス | Redis Streams |
+| データベース | SQLite (bun:sqlite) |
 | Claude 起動 | Claude CLI |
 
 ## 通信方式
 
 - **Polling (プル型)**: worker が `check_messages` を定期的に呼び出してメッセージを取得
-- **Heartbeat**: `check_messages` 呼び出し時に自動更新
-- **メッセージ永続化**: Redis Streams による順序保証・永続化
+- **Heartbeat**: `check_messages` 呼び出し時に自動更新 (30秒タイムアウト)
+- **メッセージ永続化**: SQLite による順序保証・永続化
 
 ## ロール
 
@@ -115,57 +115,46 @@ type Message = {
 | `REVIEW_RESULT` | orche → worker | `{ task_id, approved, feedback }` |
 | `TASK_COMPLETE` | orche → worker | `{ task_id }` |
 
-## Redis データ構造
+## SQLite データ構造
 
-### キー命名規則
+### テーブル
 
-| 用途 | キー |
-|------|------|
-| orche 宛メッセージ | `stream:orche` |
-| worker 宛メッセージ | `stream:worker:{worker_id}` |
-| タスク状態 | `task:{task_id}` |
-| worker 状態 | `worker:{worker_id}` |
-| worker 生存確認 | `worker:{worker_id}:alive` (TTL 30s) |
-| worker 一覧 | `workers:active` |
+```sql
+-- メッセージテーブル
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY,
+  seq INTEGER UNIQUE,          -- 順序保証用の連番
+  timestamp INTEGER NOT NULL,
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  payload TEXT NOT NULL        -- JSON
+);
 
-### メッセージ (Streams)
+-- タスクテーブル
+CREATE TABLE tasks (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  worker_id TEXT,
+  description TEXT NOT NULL,
+  context TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 
-```bash
-# orche → worker
-XADD stream:worker:{worker_id} * id {uuid} type TASK_ASSIGN payload {json}
-
-# worker → orche
-XADD stream:orche * id {uuid} type PROGRESS payload {json}
+-- ワーカーテーブル
+CREATE TABLE workers (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  task_id TEXT,
+  pane_id TEXT,
+  last_heartbeat INTEGER NOT NULL  -- 30秒以内なら生存
+);
 ```
 
-### タスク状態 (Hash)
+### データベースファイル
 
-```bash
-HSET task:{task_id} \
-  status "in_progress" \
-  worker_id "w1" \
-  description "テストを書いて" \
-  created_at 1234567890 \
-  updated_at 1234567890
-```
-
-### Worker 状態 (Hash + EXPIRE)
-
-```bash
-HSET worker:{worker_id} \
-  status "running" \
-  task_id "t1" \
-  last_heartbeat 1234567890
-
-# 生存確認用 TTL キー
-SET worker:{worker_id}:alive 1 EX 30
-```
-
-### Worker 一覧 (Set)
-
-```bash
-SADD workers:active w1 w2 w3
-```
+デフォルト: `aiorchestration.db` (環境変数 `DB_PATH` で変更可能)
 
 ## タスク状態遷移
 
@@ -232,27 +221,27 @@ claude --mcp-config worker.json --system-prompt "$(cat worker-prompt.md)" \
 ```
 [タスク開始]
 Human → orche: 「テスト書いて」
-orche → Redis: task 作成 + worker 宛メッセージ
+orche → SQLite: task 作成 + worker 宛メッセージ
 orche → tmux: worker pane 作成 & claude CLI 起動
 
 [作業中]
 worker: polling でメッセージ取得
 worker: 作業実行
-worker → Redis: 進捗更新 + heartbeat
-worker → Redis: 「完了しました、レビューお願いします」
+worker → SQLite: 進捗更新 + heartbeat
+worker → SQLite: 「完了しました、レビューお願いします」
 
 [レビュー]
 orche: polling でメッセージ取得
 orche: レビュー実施
-orche → Redis: 「修正してください」
+orche → SQLite: 「修正してください」
 
 [修正]
 worker: polling でメッセージ取得
 worker: 修正実施
-worker → Redis: 「修正しました」
+worker → SQLite: 「修正しました」
 
 [完了]
-orche → Redis: 「完了」メッセージ
+orche → SQLite: 「完了」メッセージ
 worker: polling で「完了」を検知 → プロセス終了
 ```
 
@@ -260,9 +249,9 @@ worker: polling で「完了」を検知 → プロセス終了
 
 | 障害 | 対応 |
 |------|------|
-| worker クラッシュ | heartbeat タイムアウトで検知、orche が判断 |
+| worker クラッシュ | heartbeat タイムアウト (30秒) で検知、orche が判断 |
 | orche クラッシュ | 人間が手動リカバー |
-| Redis 接続断 | 再接続を試行、失敗時は処理停止 |
+| SQLite エラー | ファイルロックなど、再試行して失敗時は処理停止 |
 
 ## MCP 設定ファイル
 

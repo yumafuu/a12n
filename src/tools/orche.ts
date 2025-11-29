@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
-import * as redis from "../lib/redis.js";
+import * as db from "../lib/db.js";
 import * as tmux from "../lib/tmux.js";
 import { MessageType, TaskStatus } from "../types.js";
 
@@ -85,7 +85,7 @@ export const orcheHandlers = {
     const projectRoot = getProjectRoot();
 
     // Create task in Redis
-    await redis.createTask(taskId, params.description, params.context);
+    await db.createTask(taskId, params.description, params.context);
 
     // Create new tmux pane
     const workerConfigPath = `${projectRoot}/worker.json`;
@@ -94,12 +94,12 @@ export const orcheHandlers = {
     const paneId = await tmux.splitPane("vertical", command);
 
     // Register worker
-    await redis.registerWorker(workerId, paneId);
-    await redis.updateWorkerStatus(workerId, "running", taskId);
-    await redis.updateTaskStatus(taskId, TaskStatus.IN_PROGRESS, workerId);
+    await db.registerWorker(workerId, paneId);
+    await db.updateWorkerStatus(workerId, "running", taskId);
+    await db.updateTaskStatus(taskId, TaskStatus.IN_PROGRESS, workerId);
 
     // Send initial task assignment message
-    await redis.sendMessage(workerId, "orche", MessageType.TASK_ASSIGN, {
+    await db.sendMessage(workerId, "orche", MessageType.TASK_ASSIGN, {
       task_id: taskId,
       description: params.description,
       context: params.context,
@@ -115,7 +115,7 @@ export const orcheHandlers = {
   },
 
   async kill_worker(params: { worker_id: string }): Promise<string> {
-    const worker = await redis.getWorker(params.worker_id);
+    const worker = await db.getWorker(params.worker_id);
 
     if (!worker) {
       return JSON.stringify({
@@ -135,11 +135,11 @@ export const orcheHandlers = {
 
     // Update task status if worker had a task
     if (worker.task_id) {
-      await redis.updateTaskStatus(worker.task_id, TaskStatus.FAILED);
+      await db.updateTaskStatus(worker.task_id, TaskStatus.FAILED);
     }
 
     // Remove worker from Redis
-    await redis.removeWorker(params.worker_id);
+    await db.removeWorker(params.worker_id);
 
     return JSON.stringify({
       success: true,
@@ -148,7 +148,7 @@ export const orcheHandlers = {
   },
 
   async list_workers(): Promise<string> {
-    const workers = await redis.listActiveWorkers();
+    const workers = await db.listActiveWorkers();
 
     if (workers.length === 0) {
       return JSON.stringify({
@@ -160,7 +160,7 @@ export const orcheHandlers = {
 
     const workerList = await Promise.all(
       workers.map(async (w) => {
-        const task = w.task_id ? await redis.getTask(w.task_id) : null;
+        const task = w.task_id ? await db.getTask(w.task_id) : null;
         return {
           id: w.id,
           status: w.status,
@@ -185,7 +185,7 @@ export const orcheHandlers = {
     type: "ANSWER" | "REVIEW_RESULT" | "TASK_COMPLETE";
     payload: string;
   }): Promise<string> {
-    const worker = await redis.getWorker(params.worker_id);
+    const worker = await db.getWorker(params.worker_id);
 
     if (!worker) {
       return JSON.stringify({
@@ -204,7 +204,7 @@ export const orcheHandlers = {
       });
     }
 
-    const messageId = await redis.sendMessage(
+    const messageId = await db.sendMessage(
       params.worker_id,
       "orche",
       params.type as MessageType,
@@ -215,7 +215,7 @@ export const orcheHandlers = {
     if (params.type === "REVIEW_RESULT" && worker.task_id) {
       const reviewPayload = payload as { approved?: boolean };
       if (!reviewPayload.approved) {
-        await redis.updateTaskStatus(worker.task_id, TaskStatus.IN_PROGRESS);
+        await db.updateTaskStatus(worker.task_id, TaskStatus.IN_PROGRESS);
       }
     }
 
@@ -227,7 +227,7 @@ export const orcheHandlers = {
   },
 
   async check_messages(params: { last_id?: string }): Promise<string> {
-    const { messages, lastId } = await redis.checkMessages(
+    const { messages, lastId } = await db.checkMessages(
       "orche",
       params.last_id || "0"
     );
@@ -236,7 +236,7 @@ export const orcheHandlers = {
     for (const msg of messages) {
       if (msg.type === MessageType.REVIEW_REQUEST) {
         const payload = msg.payload as { task_id: string };
-        await redis.updateTaskStatus(payload.task_id, TaskStatus.REVIEW);
+        await db.updateTaskStatus(payload.task_id, TaskStatus.REVIEW);
       }
     }
 
@@ -255,7 +255,7 @@ export const orcheHandlers = {
   },
 
   async complete_task(params: { task_id: string }): Promise<string> {
-    const task = await redis.getTask(params.task_id);
+    const task = await db.getTask(params.task_id);
 
     if (!task) {
       return JSON.stringify({
@@ -272,12 +272,12 @@ export const orcheHandlers = {
     }
 
     // Send completion message to worker
-    await redis.sendMessage(task.worker_id, "orche", MessageType.TASK_COMPLETE, {
+    await db.sendMessage(task.worker_id, "orche", MessageType.TASK_COMPLETE, {
       task_id: params.task_id,
     });
 
     // Update task status
-    await redis.updateTaskStatus(params.task_id, TaskStatus.COMPLETED);
+    await db.updateTaskStatus(params.task_id, TaskStatus.COMPLETED);
 
     return JSON.stringify({
       success: true,
@@ -286,7 +286,7 @@ export const orcheHandlers = {
   },
 
   async get_task_status(params: { task_id: string }): Promise<string> {
-    const task = await redis.getTask(params.task_id);
+    const task = await db.getTask(params.task_id);
 
     if (!task) {
       return JSON.stringify({

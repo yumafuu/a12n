@@ -1,0 +1,334 @@
+import { Database } from "bun:sqlite";
+import { v4 as uuidv4 } from "uuid";
+import type {
+  Message,
+  MessageType,
+  MessagePayload,
+  Task,
+  TaskStatus,
+  Worker,
+  WorkerStatus,
+} from "../types.js";
+
+// Heartbeat timeout in milliseconds
+const HEARTBEAT_TIMEOUT_MS = 30000;
+
+// Database singleton
+let db: Database | null = null;
+
+function getDbPath(): string {
+  return process.env.DB_PATH || "aiorchestration.db";
+}
+
+export function getDb(): Database {
+  if (!db) {
+    db = new Database(getDbPath());
+    initSchema();
+  }
+  return db;
+}
+
+export function closeDb(): void {
+  if (db) {
+    db.close();
+    db = null;
+  }
+}
+
+function initSchema(): void {
+  const database = getDb();
+
+  database.run(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      seq INTEGER UNIQUE,
+      timestamp INTEGER NOT NULL,
+      from_id TEXT NOT NULL,
+      to_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      payload TEXT NOT NULL
+    )
+  `);
+
+  database.run(`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      worker_id TEXT,
+      description TEXT NOT NULL,
+      context TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(`
+    CREATE TABLE IF NOT EXISTS workers (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      task_id TEXT,
+      pane_id TEXT,
+      last_heartbeat INTEGER NOT NULL
+    )
+  `);
+
+  // Create indexes
+  database.run(`CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_id)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_messages_seq ON messages(seq)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_workers_heartbeat ON workers(last_heartbeat)`);
+}
+
+// Auto-increment for message sequence
+function getNextSeq(): number {
+  const database = getDb();
+  const result = database.query("SELECT MAX(seq) as max_seq FROM messages").get() as { max_seq: number | null };
+  return (result?.max_seq || 0) + 1;
+}
+
+// Message operations
+export async function sendMessage(
+  to: string,
+  from: string,
+  type: MessageType,
+  payload: MessagePayload
+): Promise<string> {
+  const database = getDb();
+  const message: Message = {
+    id: uuidv4(),
+    timestamp: Date.now(),
+    from,
+    to,
+    type,
+    payload,
+  };
+
+  const seq = getNextSeq();
+
+  database.run(
+    `INSERT INTO messages (id, seq, timestamp, from_id, to_id, type, payload) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [message.id, seq, message.timestamp, message.from, message.to, message.type, JSON.stringify(message.payload)]
+  );
+
+  return message.id;
+}
+
+export async function checkMessages(
+  recipient: string,
+  lastSeq: string = "0"
+): Promise<{ messages: Message[]; lastId: string }> {
+  const database = getDb();
+  const lastSeqNum = parseInt(lastSeq) || 0;
+
+  const rows = database.query(
+    `SELECT id, seq, timestamp, from_id, to_id, type, payload
+     FROM messages
+     WHERE to_id = ? AND seq > ?
+     ORDER BY seq ASC
+     LIMIT 100`
+  ).all(recipient, lastSeqNum) as Array<{
+    id: string;
+    seq: number;
+    timestamp: number;
+    from_id: string;
+    to_id: string;
+    type: string;
+    payload: string;
+  }>;
+
+  const messages: Message[] = rows.map((row) => ({
+    id: row.id,
+    timestamp: row.timestamp,
+    from: row.from_id,
+    to: row.to_id,
+    type: row.type as MessageType,
+    payload: JSON.parse(row.payload),
+  }));
+
+  const newLastId = rows.length > 0 ? rows[rows.length - 1].seq.toString() : lastSeq;
+
+  return { messages, lastId: newLastId };
+}
+
+// Task operations
+export async function createTask(
+  taskId: string,
+  description: string,
+  context?: string
+): Promise<Task> {
+  const database = getDb();
+  const now = Date.now();
+  const task: Task = {
+    id: taskId,
+    status: "pending",
+    description,
+    context,
+    created_at: now,
+    updated_at: now,
+  };
+
+  database.run(
+    `INSERT INTO tasks (id, status, description, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    [task.id, task.status, task.description, task.context || null, task.created_at, task.updated_at]
+  );
+
+  return task;
+}
+
+export async function getTask(taskId: string): Promise<Task | null> {
+  const database = getDb();
+  const row = database.query(
+    `SELECT id, status, worker_id, description, context, created_at, updated_at FROM tasks WHERE id = ?`
+  ).get(taskId) as {
+    id: string;
+    status: string;
+    worker_id: string | null;
+    description: string;
+    context: string | null;
+    created_at: number;
+    updated_at: number;
+  } | null;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    status: row.status as TaskStatus,
+    worker_id: row.worker_id || undefined,
+    description: row.description,
+    context: row.context || undefined,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+export async function updateTaskStatus(
+  taskId: string,
+  status: TaskStatus,
+  workerId?: string
+): Promise<void> {
+  const database = getDb();
+  const now = Date.now();
+
+  if (workerId !== undefined) {
+    database.run(
+      `UPDATE tasks SET status = ?, worker_id = ?, updated_at = ? WHERE id = ?`,
+      [status, workerId, now, taskId]
+    );
+  } else {
+    database.run(
+      `UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`,
+      [status, now, taskId]
+    );
+  }
+}
+
+// Worker operations
+export async function registerWorker(
+  workerId: string,
+  paneId?: string
+): Promise<Worker> {
+  const database = getDb();
+  const now = Date.now();
+  const worker: Worker = {
+    id: workerId,
+    status: "idle",
+    last_heartbeat: now,
+    pane_id: paneId,
+  };
+
+  database.run(
+    `INSERT INTO workers (id, status, pane_id, last_heartbeat) VALUES (?, ?, ?, ?)`,
+    [worker.id, worker.status, worker.pane_id || null, worker.last_heartbeat]
+  );
+
+  return worker;
+}
+
+export async function updateWorkerHeartbeat(workerId: string): Promise<void> {
+  const database = getDb();
+  const now = Date.now();
+  database.run(
+    `UPDATE workers SET last_heartbeat = ? WHERE id = ?`,
+    [now, workerId]
+  );
+}
+
+export async function updateWorkerStatus(
+  workerId: string,
+  status: WorkerStatus,
+  taskId?: string
+): Promise<void> {
+  const database = getDb();
+  const now = Date.now();
+
+  if (taskId !== undefined) {
+    database.run(
+      `UPDATE workers SET status = ?, task_id = ?, last_heartbeat = ? WHERE id = ?`,
+      [status, taskId, now, workerId]
+    );
+  } else {
+    database.run(
+      `UPDATE workers SET status = ?, last_heartbeat = ? WHERE id = ?`,
+      [status, now, workerId]
+    );
+  }
+}
+
+export async function getWorker(workerId: string): Promise<Worker | null> {
+  const database = getDb();
+  const row = database.query(
+    `SELECT id, status, task_id, pane_id, last_heartbeat FROM workers WHERE id = ?`
+  ).get(workerId) as {
+    id: string;
+    status: string;
+    task_id: string | null;
+    pane_id: string | null;
+    last_heartbeat: number;
+  } | null;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    status: row.status as WorkerStatus,
+    task_id: row.task_id || undefined,
+    pane_id: row.pane_id || undefined,
+    last_heartbeat: row.last_heartbeat,
+  };
+}
+
+export async function listActiveWorkers(): Promise<Worker[]> {
+  const database = getDb();
+  const cutoff = Date.now() - HEARTBEAT_TIMEOUT_MS;
+
+  const rows = database.query(
+    `SELECT id, status, task_id, pane_id, last_heartbeat
+     FROM workers
+     WHERE last_heartbeat > ?`
+  ).all(cutoff) as Array<{
+    id: string;
+    status: string;
+    task_id: string | null;
+    pane_id: string | null;
+    last_heartbeat: number;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status as WorkerStatus,
+    task_id: row.task_id || undefined,
+    pane_id: row.pane_id || undefined,
+    last_heartbeat: row.last_heartbeat,
+  }));
+}
+
+export async function removeWorker(workerId: string): Promise<void> {
+  const database = getDb();
+  database.run(`DELETE FROM workers WHERE id = ?`, [workerId]);
+  // Also clean up messages to this worker
+  database.run(`DELETE FROM messages WHERE to_id = ?`, [workerId]);
+}
