@@ -30,7 +30,7 @@ describe("workerHandlers", () => {
 
   describe("check_messages", () => {
     test("should return empty messages initially", async () => {
-      const result = JSON.parse(await workerHandlers.check_messages({}));
+      const result = JSON.parse(await workerHandlers.check_messages());
 
       expect(result.success).toBe(true);
       expect(result.messages).toHaveLength(0);
@@ -44,7 +44,7 @@ describe("workerHandlers", () => {
         description: "Test task",
       });
 
-      const result = JSON.parse(await workerHandlers.check_messages({}));
+      const result = JSON.parse(await workerHandlers.check_messages());
 
       expect(result.success).toBe(true);
       expect(result.messages).toHaveLength(1);
@@ -56,28 +56,25 @@ describe("workerHandlers", () => {
         task_id: "test-task",
       });
 
-      // Explicitly pass last_id: "0" to get all messages from the beginning
-      const result = JSON.parse(await workerHandlers.check_messages({ last_id: "0" }));
+      const result = JSON.parse(await workerHandlers.check_messages());
 
       expect(result.success).toBe(true);
       expect(result.should_terminate).toBe(true);
       expect(result.terminate_reason).toContain("TASK_COMPLETE");
     });
 
-    test("should paginate with last_id", async () => {
+    test("should mark messages as read (exactly once)", async () => {
       await sendMessage("test-worker", "orche", MessageType.TASK_ASSIGN, {
         task_id: "test-task",
         description: "Task 1",
       });
 
-      // Explicitly pass last_id: "0" to get all messages from the beginning
-      const result1 = JSON.parse(await workerHandlers.check_messages({ last_id: "0" }));
+      // First call gets the message
+      const result1 = JSON.parse(await workerHandlers.check_messages());
       expect(result1.messages).toHaveLength(1);
 
-      // Second call with last_id should return empty
-      const result2 = JSON.parse(
-        await workerHandlers.check_messages({ last_id: result1.last_id })
-      );
+      // Second call should return empty (already read)
+      const result2 = JSON.parse(await workerHandlers.check_messages());
       expect(result2.messages).toHaveLength(0);
     });
   });
@@ -98,7 +95,7 @@ describe("workerHandlers", () => {
       expect(result.message_id).toBeDefined();
 
       // Verify message was sent
-      const messages = await checkMessages("orche", "0");
+      const messages = await checkMessages("orche", "test-reader");
       expect(messages.messages).toHaveLength(1);
       expect(messages.messages[0].type).toBe(MessageType.PROGRESS);
       expect(messages.messages[0].from).toBe("test-worker");
@@ -116,7 +113,7 @@ describe("workerHandlers", () => {
 
       expect(result.success).toBe(true);
 
-      const messages = await checkMessages("orche", "0");
+      const messages = await checkMessages("orche", "test-reader");
       expect(messages.messages[0].type).toBe(MessageType.QUESTION);
     });
 
@@ -133,7 +130,7 @@ describe("workerHandlers", () => {
 
       expect(result.success).toBe(true);
 
-      const messages = await checkMessages("orche", "0");
+      const messages = await checkMessages("orche", "test-reader");
       expect(messages.messages[0].type).toBe(MessageType.REVIEW_REQUEST);
     });
 
@@ -158,7 +155,7 @@ describe("workerHandlers", () => {
         }),
       });
 
-      const messages = await checkMessages("orche", "0");
+      const messages = await checkMessages("orche", "test-reader");
       const payload = messages.messages[0].payload as { task_id?: string };
       expect(payload.task_id).toBe("test-task");
     });
@@ -177,7 +174,7 @@ describe("workerHandlers", () => {
       expect(result.message).toContain("Progress updated");
 
       // Verify message was sent to orchestrator
-      const messages = await checkMessages("orche", "0");
+      const messages = await checkMessages("orche", "test-reader");
       expect(messages.messages).toHaveLength(1);
       expect(messages.messages[0].type).toBe(MessageType.PROGRESS);
 
@@ -197,7 +194,7 @@ describe("workerHandlers", () => {
       delete process.env.WORKER_ID;
 
       try {
-        await workerHandlers.check_messages({});
+        await workerHandlers.check_messages();
         expect(true).toBe(false); // Should not reach here
       } catch (error) {
         expect((error as Error).message).toContain("WORKER_ID");

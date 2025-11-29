@@ -31,12 +31,7 @@ export const plannerTools = [
   {
     name: "check_messages",
     description: "Check for messages from orchestrator (task status, completion reports)",
-    inputSchema: z.object({
-      last_id: z
-        .string()
-        .optional()
-        .describe("Last message ID (for pagination)"),
-    }),
+    inputSchema: z.object({}),
   },
   {
     name: "list_tasks",
@@ -44,9 +39,6 @@ export const plannerTools = [
     inputSchema: z.object({}),
   },
 ] as const;
-
-// Store last message ID for pagination
-let lastMessageId = "0";
 
 // Tool handlers
 export const plannerHandlers = {
@@ -73,17 +65,13 @@ export const plannerHandlers = {
     });
   },
 
-  async check_messages(params: { last_id?: string }): Promise<string> {
+  async check_messages(): Promise<string> {
     // First, check socket queue for real-time messages
     const socketMessages = socketMessageQueue.splice(0);
 
     // Also check database for any missed messages (fallback)
-    const { messages: dbMessages, lastId } = await db.checkMessages(
-      "planner",
-      params.last_id || lastMessageId
-    );
-
-    lastMessageId = lastId;
+    // Use "planner" as reader_id - messages are marked as read automatically
+    const { messages: dbMessages } = await db.checkMessages("planner", "planner");
 
     // Merge and dedupe messages
     const messageMap = new Map<string, Message>();
@@ -104,7 +92,6 @@ export const plannerHandlers = {
         payload: m.payload,
         timestamp: new Date(m.timestamp).toISOString(),
       })),
-      last_id: lastId,
       count: allMessages.length,
     });
   },

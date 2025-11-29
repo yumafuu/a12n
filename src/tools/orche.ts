@@ -62,12 +62,7 @@ export const orcheTools = [
   {
     name: "check_messages",
     description: "Check for messages from workers",
-    inputSchema: z.object({
-      last_id: z
-        .string()
-        .optional()
-        .describe("Last message ID (for pagination)"),
-    }),
+    inputSchema: z.object({}),
   },
   {
     name: "complete_task",
@@ -376,15 +371,13 @@ export const orcheHandlers = {
     });
   },
 
-  async check_messages(params: { last_id?: string }): Promise<string> {
+  async check_messages(): Promise<string> {
     // First, check socket queue for real-time messages
     const socketMessages = socketMessageQueue.splice(0);
 
     // Also check database for any missed messages (fallback)
-    const { messages: dbMessages, lastId } = await db.checkMessages(
-      "orche",
-      params.last_id || "0"
-    );
+    // Use "orche" as reader_id - messages are marked as read automatically
+    const { messages: dbMessages } = await db.checkMessages("orche", "orche");
 
     // Merge and dedupe messages
     const messageMap = new Map<string, Message>();
@@ -425,7 +418,6 @@ export const orcheHandlers = {
         payload: m.payload,
         timestamp: new Date(m.timestamp).toISOString(),
       })),
-      last_id: lastId,
       count: allMessages.length,
     });
   },

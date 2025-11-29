@@ -1,14 +1,11 @@
 import { z } from "zod";
 import * as db from "../lib/db.js";
-import { MessageType, TaskStatus } from "../types.js";
+import { MessageType } from "../types.js";
 import type { Message } from "../types.js";
 import { getSocketClient } from "../lib/socket.js";
 
 // Queue for messages received via socket
 const socketMessageQueue: Message[] = [];
-
-// Set to track processed message IDs to prevent duplicates
-const processedMessageIds = new Set<string>();
 
 // Setup socket message handler
 export function setupSocketMessageHandler(): void {
@@ -27,12 +24,7 @@ export const reviewerTools = [
     name: "check_messages",
     description:
       "Check for review requests from orchestrator. Call this regularly.",
-    inputSchema: z.object({
-      last_id: z
-        .string()
-        .optional()
-        .describe("Last message ID (for pagination)"),
-    }),
+    inputSchema: z.object({}),
   },
   {
     name: "send_review_result",
@@ -52,33 +44,15 @@ export const reviewerTools = [
   },
 ] as const;
 
-// Store last message ID for pagination
-// This will be initialized to current max seq on first check_messages call
-// to skip past messages that existed before this process started
-let lastMessageId: string | null = null;
-let isInitialized = false;
-
 // Tool handlers
 export const reviewerHandlers = {
-  async check_messages(params: { last_id?: string }): Promise<string> {
-    // Initialize lastMessageId to current max seq on first call
-    // This ensures we skip all messages that existed before this process started
-    if (!isInitialized) {
-      const currentMaxSeq = db.getCurrentMaxSeq();
-      lastMessageId = currentMaxSeq.toString();
-      isInitialized = true;
-    }
-
+  async check_messages(): Promise<string> {
     // First, check socket queue for real-time messages
     const socketMessages = socketMessageQueue.splice(0);
 
     // Also check database for any missed messages (fallback)
-    const { messages: dbMessages, lastId } = await db.checkMessages(
-      "reviewer",
-      params.last_id || lastMessageId || "0"
-    );
-
-    lastMessageId = lastId;
+    // Use "reviewer" as reader_id - messages are marked as read automatically
+    const { messages: dbMessages } = await db.checkMessages("reviewer", "reviewer");
 
     // Merge and dedupe messages
     const messageMap = new Map<string, Message>();
@@ -90,17 +64,10 @@ export const reviewerHandlers = {
     }
     const allMessages = Array.from(messageMap.values());
 
-    // Filter for REVIEW_REQUEST messages only and exclude already processed ones
+    // Filter for REVIEW_REQUEST messages only
     const reviewRequests = allMessages.filter(
-      (m) =>
-        m.type === MessageType.REVIEW_REQUEST &&
-        !processedMessageIds.has(m.id)
+      (m) => m.type === MessageType.REVIEW_REQUEST
     );
-
-    // Mark these messages as processed
-    for (const msg of reviewRequests) {
-      processedMessageIds.add(msg.id);
-    }
 
     return JSON.stringify({
       success: true,
@@ -111,7 +78,6 @@ export const reviewerHandlers = {
         payload: m.payload,
         timestamp: new Date(m.timestamp).toISOString(),
       })),
-      last_id: lastId,
       count: reviewRequests.length,
     });
   },

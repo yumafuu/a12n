@@ -53,14 +53,14 @@ describe("db", () => {
       expect(messageId).toBeDefined();
       expect(typeof messageId).toBe("string");
 
-      const result = await checkMessages("worker-1", "0");
+      const result = await checkMessages("worker-1", "worker-1");
       expect(result.messages).toHaveLength(1);
       expect(result.messages[0].type).toBe(MessageType.TASK_ASSIGN);
       expect(result.messages[0].from).toBe("orche");
       expect(result.messages[0].to).toBe("worker-1");
     });
 
-    test("should paginate messages correctly", async () => {
+    test("should mark messages as read (exactly once delivery)", async () => {
       // Send multiple messages
       await sendMessage("worker-1", "orche", MessageType.TASK_ASSIGN, {
         task_id: "task-1",
@@ -72,12 +72,12 @@ describe("db", () => {
         message: "Progress update",
       });
 
-      // Get first message
-      const result1 = await checkMessages("worker-1", "0");
+      // First call gets all messages
+      const result1 = await checkMessages("worker-1", "worker-1");
       expect(result1.messages).toHaveLength(2);
 
-      // Get with last ID should return empty
-      const result2 = await checkMessages("worker-1", result1.lastId);
+      // Second call should return empty (messages already read)
+      const result2 = await checkMessages("worker-1", "worker-1");
       expect(result2.messages).toHaveLength(0);
     });
 
@@ -91,13 +91,32 @@ describe("db", () => {
         description: "Task 2",
       });
 
-      const result1 = await checkMessages("worker-1", "0");
+      const result1 = await checkMessages("worker-1", "worker-1");
       expect(result1.messages).toHaveLength(1);
       expect((result1.messages[0].payload as { task_id: string }).task_id).toBe("task-1");
 
-      const result2 = await checkMessages("worker-2", "0");
+      const result2 = await checkMessages("worker-2", "worker-2");
       expect(result2.messages).toHaveLength(1);
       expect((result2.messages[0].payload as { task_id: string }).task_id).toBe("task-2");
+    });
+
+    test("should allow different readers to read the same message", async () => {
+      await sendMessage("worker-1", "orche", MessageType.TASK_ASSIGN, {
+        task_id: "task-1",
+        description: "Task 1",
+      });
+
+      // Reader A reads the message
+      const result1 = await checkMessages("worker-1", "reader-a");
+      expect(result1.messages).toHaveLength(1);
+
+      // Reader B can also read the same message
+      const result2 = await checkMessages("worker-1", "reader-b");
+      expect(result2.messages).toHaveLength(1);
+
+      // Reader A cannot read again
+      const result3 = await checkMessages("worker-1", "reader-a");
+      expect(result3.messages).toHaveLength(0);
     });
   });
 
@@ -258,12 +277,12 @@ describe("db", () => {
         description: "Test",
       });
 
-      let result = await checkMessages("worker-1", "0");
+      let result = await checkMessages("worker-1", "worker-1");
       expect(result.messages).toHaveLength(1);
 
       await removeWorker("worker-1");
 
-      result = await checkMessages("worker-1", "0");
+      result = await checkMessages("worker-1", "worker-1-new");
       expect(result.messages).toHaveLength(0);
     });
   });
