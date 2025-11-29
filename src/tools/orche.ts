@@ -90,8 +90,7 @@ export const orcheHandlers = {
     // Create new tmux pane
     const workerConfigPath = `${projectRoot}/worker.json`;
     const workerPromptPath = `${projectRoot}/worker-prompt.md`;
-    const initialPrompt = `タスクを開始してください。まず check_messages を呼んでタスク内容を確認してください。`;
-    const command = `WORKER_ID=${workerId} TASK_ID=${taskId} claude --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" -p "${initialPrompt}"`;
+    const command = `WORKER_ID=${workerId} TASK_ID=${taskId} claude --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。まず check_messages を呼んでタスク内容を確認してください。"`;
 
     const paneId = await tmux.splitPane("vertical", command);
 
