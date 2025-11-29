@@ -169,7 +169,7 @@ describe("orcheHandlers", () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain("marked as complete");
+      expect(result.message).toContain("completed");
 
       // Verify task status
       const task = await getTask("task-1");
