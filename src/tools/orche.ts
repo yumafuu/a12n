@@ -280,9 +280,22 @@ export const orcheHandlers = {
     // Update task status
     await db.updateTaskStatus(params.task_id, TaskStatus.COMPLETED);
 
+    // Kill worker pane
+    const worker = await db.getWorker(task.worker_id);
+    if (worker?.pane_id) {
+      try {
+        await tmux.killPane(worker.pane_id);
+      } catch {
+        // Pane might already be closed
+      }
+    }
+
+    // Remove worker from db
+    await db.removeWorker(task.worker_id);
+
     return JSON.stringify({
       success: true,
-      message: `Task ${params.task_id} marked as complete. Worker ${task.worker_id} notified.`,
+      message: `Task ${params.task_id} completed. Worker ${task.worker_id} terminated.`,
     });
   },
 

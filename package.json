@@ -5,7 +5,9 @@
   "scripts": {
     "dev:orche": "bun run src/mcp-server.ts --role orche",
     "dev:worker": "bun run src/mcp-server.ts --role worker",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:watch": "bun test --watch"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.5.0",
