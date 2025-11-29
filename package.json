@@ -1,0 +1,21 @@
+{
+  "name": "aiorchestration",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev:orche": "bun run src/mcp-server.ts --role orche",
+    "dev:worker": "bun run src/mcp-server.ts --role worker",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.5.0",
+    "ioredis": "^5.4.1",
+    "zod": "^3.24.2",
+    "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.7.2"
+  }
+}
