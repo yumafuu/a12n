@@ -9,7 +9,7 @@ export const orcheTools = [
   {
     name: "spawn_worker",
     description:
-      "Create a new tmux pane and spawn a worker Claude CLI with a task",
+      "Create a new tmux window and spawn a worker Claude CLI with a task",
     inputSchema: z.object({
       task_id: z
         .string()
@@ -21,7 +21,7 @@ export const orcheTools = [
   },
   {
     name: "kill_worker",
-    description: "Terminate a worker and its tmux pane",
+    description: "Terminate a worker and its tmux window",
     inputSchema: z.object({
       worker_id: z.string().describe("Worker ID to terminate"),
     }),
@@ -202,14 +202,14 @@ export const orcheHandlers = {
     };
     await Bun.write(workerConfigPath, JSON.stringify(workerConfig, null, 2));
 
-    // Create new tmux pane - worker runs in worktree directory with auto-approve
+    // Create new tmux window - worker runs in worktree directory with auto-approve
     const workerPromptPath = `${projectRoot}/worker-prompt.md`;
     const command = `cd ${worktreePath} && claude --dangerously-skip-permissions --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。まず check_messages を呼んでタスク内容を確認してください。"`;
 
-    const paneId = await tmux.splitPane("horizontal", command);
+    const windowId = await tmux.newWindow(command);
 
     // Register worker
-    await db.registerWorker(workerId, paneId);
+    await db.registerWorker(workerId, windowId);
     await db.updateWorkerStatus(workerId, "running", taskId);
     await db.updateTaskStatus(taskId, TaskStatus.IN_PROGRESS, workerId);
 
@@ -226,7 +226,7 @@ export const orcheHandlers = {
       success: true,
       worker_id: workerId,
       task_id: taskId,
-      pane_id: paneId,
+      window_id: windowId,
       worktree_path: worktreePath,
       branch_name: branchName,
       message: `Worker ${workerId} spawned with task ${taskId} in worktree ${worktreePath}`,
@@ -243,12 +243,12 @@ export const orcheHandlers = {
       });
     }
 
-    // Kill tmux pane if exists
+    // Kill tmux window if exists
     if (worker.pane_id) {
       try {
-        await tmux.killPane(worker.pane_id);
+        await tmux.killWindow(worker.pane_id);
       } catch {
-        // Pane might already be closed
+        // Window might already be closed
       }
     }
 
@@ -296,7 +296,7 @@ export const orcheHandlers = {
           task_id: w.task_id,
           task_status: task?.status,
           task_description: task?.description,
-          pane_id: w.pane_id,
+          window_id: w.pane_id,
           last_heartbeat: new Date(w.last_heartbeat).toISOString(),
         };
       })
@@ -420,13 +420,13 @@ export const orcheHandlers = {
     // Update task status
     await db.updateTaskStatus(params.task_id, TaskStatus.COMPLETED);
 
-    // Kill worker pane
+    // Kill worker window
     const worker = await db.getWorker(task.worker_id);
     if (worker?.pane_id) {
       try {
-        await tmux.killPane(worker.pane_id);
+        await tmux.killWindow(worker.pane_id);
       } catch {
-        // Pane might already be closed
+        // Window might already be closed
       }
     }
 
@@ -492,12 +492,12 @@ export const orcheHandlers = {
       reason: params.reason,
     });
 
-    // Kill tmux pane immediately
+    // Kill tmux window immediately
     if (worker.pane_id) {
       try {
-        await tmux.killPane(worker.pane_id);
+        await tmux.killWindow(worker.pane_id);
       } catch {
-        // Pane might already be closed
+        // Window might already be closed
       }
     }
 
