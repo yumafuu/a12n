@@ -5,6 +5,12 @@
  * - Orche, Reviewer, and workers run in a separate window (autonomous)
  */
 
+import {
+  setPaneBorderColor,
+  setPaneTitle,
+  ROLE_COLORS,
+} from "../src/lib/tmux.js";
+
 // Generate unique window name: {dirname}-{4char uid}
 function generateWindowName(): string {
   const uid = Math.random().toString(36).substring(2, 6);
@@ -82,6 +88,18 @@ async function main() {
     "-p",
     "#{pane_id}",
   ]);
+
+  // Apply colors to orche pane
+  await setPaneBorderColor(orchePane, "orche");
+  await setPaneTitle(orchePane, "Orche");
+
+  // Apply colors to reviewer pane
+  await setPaneBorderColor(reviewerPane, "reviewer");
+  await setPaneTitle(reviewerPane, "Reviewer");
+
+  // Apply colors to planner pane (current pane)
+  await setPaneBorderColor(plannerPane, "planner");
+  await setPaneTitle(plannerPane, "Planner");
 
   // Start orche in left pane (with pane IDs for watcher)
   const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} REVIEWER_PANE=${reviewerPane} claude --dangerously-skip-permissions --mcp-config ${PROJECT_ROOT}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;

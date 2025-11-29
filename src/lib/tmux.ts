@@ -1,5 +1,251 @@
 import { $ } from "bun";
 
+// Role-based color configuration
+// Using distinct colors for easy visual identification
+export const ROLE_COLORS = {
+  planner: {
+    fg: "white",
+    bg: "colour54",      // Purple - for human interaction
+    border: "colour54",
+  },
+  orche: {
+    fg: "white",
+    bg: "colour24",      // Blue - orchestrator
+    border: "colour24",
+  },
+  reviewer: {
+    fg: "black",
+    bg: "colour142",     // Yellow/olive - reviewer
+    border: "colour142",
+  },
+  worker: {
+    fg: "white",
+    bg: "colour22",      // Green - workers
+    border: "colour22",
+  },
+} as const;
+
+export type RoleType = keyof typeof ROLE_COLORS;
+
+// Set pane border style for same-window roles (Orche, Reviewer)
+export async function setPaneBorderColor(
+  paneId: string,
+  role: RoleType
+): Promise<void> {
+  await checkTmux();
+  const color = ROLE_COLORS[role];
+
+  try {
+    // Set pane border style
+    const proc = Bun.spawn(
+      [
+        "tmux",
+        "select-pane",
+        "-t",
+        paneId,
+        "-P",
+        `fg=${color.fg},bg=default`,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc.exited;
+
+    // Set pane-specific border style using pane-border-style
+    // This sets the border color when this pane is active
+    const proc2 = Bun.spawn(
+      [
+        "tmux",
+        "set-option",
+        "-t",
+        paneId,
+        "-p",
+        "pane-border-style",
+        `fg=${color.border}`,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc2.exited;
+
+    const proc3 = Bun.spawn(
+      [
+        "tmux",
+        "set-option",
+        "-t",
+        paneId,
+        "-p",
+        "pane-active-border-style",
+        `fg=${color.border},bold`,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc3.exited;
+  } catch (error) {
+    throw new Error(`Failed to set pane border color: ${(error as Error).message}`);
+  }
+}
+
+// Set pane title for identification
+export async function setPaneTitle(
+  paneId: string,
+  title: string
+): Promise<void> {
+  await checkTmux();
+
+  try {
+    const proc = Bun.spawn(
+      ["tmux", "select-pane", "-t", paneId, "-T", title],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc.exited;
+  } catch (error) {
+    throw new Error(`Failed to set pane title: ${(error as Error).message}`);
+  }
+}
+
+// Set window style for Worker windows (background color)
+export async function setWindowStyle(
+  windowId: string,
+  role: RoleType
+): Promise<void> {
+  await checkTmux();
+  const color = ROLE_COLORS[role];
+
+  try {
+    // Get the pane ID of the window's first pane
+    const proc1 = Bun.spawn(
+      ["tmux", "display-message", "-t", windowId, "-p", "#{pane_id}"],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    const paneId = (await new Response(proc1.stdout).text()).trim();
+    await proc1.exited;
+
+    // Set subtle background tint for worker identification
+    // Using a dark variant to not interfere with readability
+    const proc2 = Bun.spawn(
+      [
+        "tmux",
+        "select-pane",
+        "-t",
+        paneId,
+        "-P",
+        `bg=colour234`,  // Very dark gray as base
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc2.exited;
+
+    // Set window status format with color
+    const proc3 = Bun.spawn(
+      [
+        "tmux",
+        "set-window-option",
+        "-t",
+        windowId,
+        "window-status-style",
+        `bg=${color.bg},fg=${color.fg}`,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc3.exited;
+
+    // Set active window status format
+    const proc4 = Bun.spawn(
+      [
+        "tmux",
+        "set-window-option",
+        "-t",
+        windowId,
+        "window-status-current-style",
+        `bg=${color.bg},fg=${color.fg},bold`,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc4.exited;
+
+    // Set pane border colors for worker window
+    const proc5 = Bun.spawn(
+      [
+        "tmux",
+        "set-option",
+        "-t",
+        paneId,
+        "-p",
+        "pane-border-style",
+        `fg=${color.border}`,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc5.exited;
+
+    const proc6 = Bun.spawn(
+      [
+        "tmux",
+        "set-option",
+        "-t",
+        paneId,
+        "-p",
+        "pane-active-border-style",
+        `fg=${color.border},bold`,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc6.exited;
+  } catch (error) {
+    throw new Error(`Failed to set window style: ${(error as Error).message}`);
+  }
+}
+
+// Rename window with role prefix
+export async function setWindowName(
+  windowId: string,
+  name: string
+): Promise<void> {
+  await checkTmux();
+
+  try {
+    const proc = Bun.spawn(
+      ["tmux", "rename-window", "-t", windowId, name],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc.exited;
+  } catch (error) {
+    throw new Error(`Failed to rename window: ${(error as Error).message}`);
+  }
+}
+
 export async function checkTmux(): Promise<void> {
   try {
     await $`which tmux`.quiet();
