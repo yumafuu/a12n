@@ -8,16 +8,52 @@ const ORCHE_PANE = process.env.ORCHE_PANE || "";
 const REVIEWER_PANE = process.env.REVIEWER_PANE || "";
 
 // Track last checked sequence for each recipient
-const lastCheckedSeq: Record<string, number> = {
-  orche: 0,
-  reviewer: 0,
-};
+const lastCheckedSeq: Record<string, number> = {};
 
 // Track worker pane IDs
 const workerPanes: Record<string, string> = {};
 
 function getDb(): Database {
-  return new Database(DB_PATH, { readonly: true });
+  return new Database(DB_PATH);
+}
+
+function initWatcherStateTable(): void {
+  const db = getDb();
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS watcher_state (
+        recipient TEXT PRIMARY KEY,
+        last_processed_seq INTEGER NOT NULL
+      )
+    `);
+  } finally {
+    db.close();
+  }
+}
+
+function loadWatcherSeq(recipient: string): number {
+  const db = getDb();
+  try {
+    const row = db.query(
+      `SELECT last_processed_seq FROM watcher_state WHERE recipient = ?`
+    ).get(recipient) as { last_processed_seq: number } | null;
+    return row?.last_processed_seq ?? 0;
+  } finally {
+    db.close();
+  }
+}
+
+function saveWatcherSeq(recipient: string, seq: number): void {
+  const db = getDb();
+  try {
+    db.run(
+      `INSERT INTO watcher_state (recipient, last_processed_seq) VALUES (?, ?)
+       ON CONFLICT(recipient) DO UPDATE SET last_processed_seq = excluded.last_processed_seq`,
+      [recipient, seq]
+    );
+  } finally {
+    db.close();
+  }
 }
 
 async function getPanes(): Promise<{ orche: string; reviewer: string }> {
@@ -65,7 +101,10 @@ async function checkForNewMessages(
     }>;
 
     if (rows.length > 0) {
-      lastCheckedSeq[recipient] = rows[rows.length - 1].seq;
+      const newSeq = rows[rows.length - 1].seq;
+      lastCheckedSeq[recipient] = newSeq;
+      // Persist the processed seq to DB
+      saveWatcherSeq(recipient, newSeq);
     }
 
     return {
@@ -172,10 +211,11 @@ async function notify(
 }
 
 async function initializeSeq(recipient: string): Promise<void> {
-  // Start from 0 so we catch any unprocessed messages on startup
-  lastCheckedSeq[recipient] = 0;
+  // Load the last processed seq from persistent storage
+  const savedSeq = loadWatcherSeq(recipient);
+  lastCheckedSeq[recipient] = savedSeq;
   console.log(
-    `[watcher] ${recipient} starting from seq: 0 (will check all messages)`
+    `[watcher] ${recipient} starting from seq: ${savedSeq} (persisted)`
   );
 }
 
@@ -183,6 +223,9 @@ async function main(): Promise<void> {
   console.log("[watcher] Starting watcher...");
   console.log(`[watcher] DB: ${DB_PATH}`);
   console.log(`[watcher] Poll interval: ${POLL_INTERVAL_MS}ms`);
+
+  // Initialize watcher_state table for persistent seq tracking
+  initWatcherStateTable();
 
   const panes = await getPanes();
   console.log(`[watcher] Orche pane: ${panes.orche || "(not found)"}`);
@@ -193,7 +236,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Initialize lastCheckedSeq
+  // Initialize lastCheckedSeq from persisted state
   await initializeSeq("orche");
   await initializeSeq("reviewer");
 
@@ -231,10 +274,11 @@ async function main(): Promise<void> {
       // Check messages for active workers
       const workers = await getActiveWorkers();
       for (const worker of workers) {
-        // Initialize seq tracking for new workers
+        // Initialize seq tracking for new workers from persisted state
         if (lastCheckedSeq[worker.id] === undefined) {
-          lastCheckedSeq[worker.id] = 0;
-          console.log(`[watcher] New worker detected: ${worker.id} (pane: ${worker.pane_id})`);
+          const savedSeq = loadWatcherSeq(worker.id);
+          lastCheckedSeq[worker.id] = savedSeq;
+          console.log(`[watcher] New worker detected: ${worker.id} (pane: ${worker.pane_id}, seq: ${savedSeq})`);
         }
         workerPanes[worker.id] = worker.pane_id;
 
