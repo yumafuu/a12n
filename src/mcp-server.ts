@@ -66,6 +66,8 @@ function zodToJsonSchema(zodSchema: unknown): Record<string, unknown> {
 
     if (def?.typeName === "ZodString") {
       fieldSchema = { type: "string" };
+    } else if (def?.typeName === "ZodNumber") {
+      fieldSchema = { type: "number" };
     } else if (def?.typeName === "ZodEnum") {
       fieldSchema = { type: "string", enum: def.values };
     } else if (def?.typeName === "ZodBoolean") {
@@ -76,6 +78,10 @@ function zodToJsonSchema(zodSchema: unknown): Record<string, unknown> {
       };
       if (innerDef?._def?.typeName === "ZodString") {
         fieldSchema = { type: "string" };
+      } else if (innerDef?._def?.typeName === "ZodNumber") {
+        fieldSchema = { type: "number" };
+      } else if (innerDef?._def?.typeName === "ZodBoolean") {
+        fieldSchema = { type: "boolean" };
       } else if (innerDef?._def?.typeName === "ZodEnum") {
         fieldSchema = { type: "string", enum: innerDef._def.values };
       } else {
