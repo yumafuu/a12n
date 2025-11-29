@@ -127,7 +127,9 @@ function buildNotificationPrompt(
       return "新しいメッセージが来ています。check_messages を呼んで確認してください。";
     }
   } else if (recipient === "planner") {
-    if (messageTypes.includes("REVIEW_REQUEST")) {
+    if (messageTypes.includes("TASK_ASSIGN")) {
+      return "UI からタスクが来ています。check_messages を呼んで確認し、要件を整理して orche に送信してください。";
+    } else if (messageTypes.includes("REVIEW_REQUEST")) {
       return "Orche からレビュー依頼が転送されました。check_messages を呼んで確認し、レビューしてください。";
     } else if (messageTypes.includes("QUESTION")) {
       return "質問が来ています。check_messages を呼んで確認し、回答してください。";
