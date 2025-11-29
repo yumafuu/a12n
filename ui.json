@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "aiorchestration": {
+      "command": "bun",
+      "args": ["run", "/Users/yuma/ghq/github.com/yumafuu/aiorchestration/src/mcp-server.ts", "--role", "ui"],
+      "env": {
+        "PROJECT_ROOT": "/Users/yuma/ghq/github.com/yumafuu/aiorchestration"
+      }
+    }
+  }
+}

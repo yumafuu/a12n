@@ -36,6 +36,18 @@ export const plannerTools = [
     description: "List all tasks and their status",
     inputSchema: z.object({}),
   },
+  {
+    name: "send_message_to_ui",
+    description:
+      "Send a message to the UI (for questions or reports to the human)",
+    inputSchema: z.object({
+      type: z
+        .enum(["QUESTION", "REPORT", "STATUS"])
+        .describe("Message type: QUESTION for clarification, REPORT for completion, STATUS for updates"),
+      message: z.string().describe("Message content"),
+      task_id: z.string().optional().describe("Related task ID if applicable"),
+    }),
+  },
 ] as const;
 
 // Store last message ID for pagination
@@ -134,6 +146,29 @@ export const plannerHandlers = {
         updated_at: new Date(t.updated_at).toISOString(),
       })),
       count: tasks.length,
+    });
+  },
+
+  async send_message_to_ui(params: {
+    type: "QUESTION" | "REPORT" | "STATUS";
+    message: string;
+    task_id?: string;
+  }): Promise<string> {
+    const messageId = await db.sendMessage(
+      "ui",
+      "planner",
+      MessageType.PROGRESS,
+      {
+        task_id: params.task_id || "",
+        status: params.type,
+        message: params.message,
+      }
+    );
+
+    return JSON.stringify({
+      success: true,
+      message_id: messageId,
+      message: `Message sent to UI: ${params.type}`,
     });
   },
 };

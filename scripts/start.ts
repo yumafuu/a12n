@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Startup script for aiorchestration
- * - Planner runs in the current pane (for human interaction)
- * - Orche and workers run in a separate window
+ * - UI runs in the current pane (for human interaction, no interrupts)
+ * - Planner, Orche, and workers run in a separate window (autonomous)
  */
 
 // Generate unique window name: {dirname}-{4char uid}
@@ -42,19 +42,39 @@ async function main() {
     process.exit(1);
   }
 
-  // Get current pane ID (will be used for planner)
-  const plannerPane = await runCommand([
+  // Get current pane ID (will be used for UI)
+  const uiPane = await runCommand([
     "tmux",
     "display-message",
     "-p",
     "#{pane_id}",
   ]);
 
-  // Create new window for orche and workers
-  console.log(`Creating orche window: ${WINDOW_NAME}`);
+  // Create new window for planner, orche, and workers
+  console.log(`Creating agents window: ${WINDOW_NAME}`);
   await runCommand(["tmux", "new-window", "-d", "-n", WINDOW_NAME]);
 
-  // Get orche pane ID
+  // Split the new window horizontally: left=planner, right=orche
+  // First get the planner pane (the initial pane in new window)
+  const plannerPane = await runCommand([
+    "tmux",
+    "display-message",
+    "-t",
+    WINDOW_NAME,
+    "-p",
+    "#{pane_id}",
+  ]);
+
+  // Split horizontally for orche
+  await runCommand([
+    "tmux",
+    "split-window",
+    "-t",
+    WINDOW_NAME,
+    "-h",
+  ]);
+
+  // Get orche pane ID (the new pane after split)
   const orchePane = await runCommand([
     "tmux",
     "display-message",
@@ -64,23 +84,30 @@ async function main() {
     "#{pane_id}",
   ]);
 
-  // Start orche in the new window with pane IDs for watcher
-  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} claude --mcp-config ${PROJECT_ROOT}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
-  await runCommand(["tmux", "send-keys", "-t", WINDOW_NAME, orcheCmd]);
-  await runCommand(["tmux", "send-keys", "-t", WINDOW_NAME, "Enter"]);
+  // Start planner in left pane (autonomous, with initial prompt)
+  const plannerCmd = `claude --dangerously-skip-permissions --mcp-config ${PROJECT_ROOT}/planner.json --system-prompt "$(cat ${PROJECT_ROOT}/planner-prompt.md)" "起動しました。check_messages を呼んで UI からのタスクを確認してください。"`;
+  await runCommand(["tmux", "send-keys", "-t", plannerPane, plannerCmd]);
+  await runCommand(["tmux", "send-keys", "-t", plannerPane, "Enter"]);
+
+  // Start orche in right pane (with pane IDs for watcher)
+  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} claude --dangerously-skip-permissions --mcp-config ${PROJECT_ROOT}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
+  await runCommand(["tmux", "send-keys", "-t", orchePane, orcheCmd]);
+  await runCommand(["tmux", "send-keys", "-t", orchePane, "Enter"]);
 
   console.log("");
   console.log("Setup complete!");
-  console.log(`  Current pane (${plannerPane}): planner`);
-  console.log(`  Window '${WINDOW_NAME}' (${orchePane}): orche (workers will spawn here)`);
+  console.log(`  Current pane (${uiPane}): UI (human interaction)`);
+  console.log(`  Window '${WINDOW_NAME}':`);
+  console.log(`    - Left pane (${plannerPane}): Planner (autonomous)`);
+  console.log(`    - Right pane (${orchePane}): Orche (workers spawn here)`);
   console.log("");
-  console.log("Starting planner...");
+  console.log("Starting UI...");
   console.log("");
 
-  // Start planner in current pane (exec replaces current process)
-  const plannerCmd = `claude --mcp-config ${PROJECT_ROOT}/planner.json --system-prompt "$(cat ${PROJECT_ROOT}/planner-prompt.md)"`;
+  // Start UI in current pane (human interaction, no auto-approve)
+  const uiCmd = `claude --mcp-config ${PROJECT_ROOT}/ui.json --system-prompt "$(cat ${PROJECT_ROOT}/ui-prompt.md)"`;
 
-  const proc = Bun.spawn(["bash", "-c", plannerCmd], {
+  const proc = Bun.spawn(["bash", "-c", uiCmd], {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",

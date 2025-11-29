@@ -122,4 +122,4 @@ export type Worker = {
 };
 
 // Role
-export type Role = "planner" | "orche" | "worker";
+export type Role = "ui" | "planner" | "orche" | "worker";
