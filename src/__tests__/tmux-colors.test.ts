@@ -53,9 +53,9 @@ describe("tmux colors", () => {
       expect(ROLE_COLORS.orche.border).toBe("colour24");
     });
 
-    test("reviewer color should be yellow/olive (colour142)", () => {
-      expect(ROLE_COLORS.reviewer.bg).toBe("colour142");
-      expect(ROLE_COLORS.reviewer.border).toBe("colour142");
+    test("reviewer color should be dark olive with bright yellow border", () => {
+      expect(ROLE_COLORS.reviewer.bg).toBe("colour58");
+      expect(ROLE_COLORS.reviewer.border).toBe("colour226");
     });
 
     test("worker color should be green (colour22)", () => {

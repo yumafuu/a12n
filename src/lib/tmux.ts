@@ -14,9 +14,9 @@ export const ROLE_COLORS = {
     border: "colour24",
   },
   reviewer: {
-    fg: "black",
-    bg: "colour142",     // Yellow/olive - reviewer
-    border: "colour142",
+    fg: "colour226",     // Bright yellow text
+    bg: "colour58",      // Dark olive background
+    border: "colour226", // Bright yellow border
   },
   worker: {
     fg: "white",
