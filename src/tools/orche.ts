@@ -89,7 +89,8 @@ export const orcheHandlers = {
 
     // Create new tmux pane
     const workerConfigPath = `${projectRoot}/worker.json`;
-    const command = `WORKER_ID=${workerId} TASK_ID=${taskId} claude --mcp-config ${workerConfigPath}`;
+    const workerPromptPath = `${projectRoot}/worker-prompt.md`;
+    const command = `WORKER_ID=${workerId} TASK_ID=${taskId} claude --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})"`;
 
     const paneId = await tmux.splitPane("vertical", command);
 
