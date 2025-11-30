@@ -7,3 +7,4 @@ bun.lockb
 *.db
 .worktrees/
 .worker-config.json
+.generated/

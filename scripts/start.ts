@@ -5,6 +5,8 @@
  * - Orche, Reviewer, and workers run in a separate window (autonomous)
  */
 
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
 import {
   setPaneBorderColor,
   setPaneTitle,
@@ -20,6 +22,46 @@ function generateWindowName(): string {
 
 const WINDOW_NAME = generateWindowName();
 const PROJECT_ROOT = import.meta.dir.replace("/scripts", "");
+
+// Directory for generated config files
+const GENERATED_DIR = join(PROJECT_ROOT, ".generated");
+
+// Generate MCP config for a role
+function generateMcpConfig(role: string, extraEnv: Record<string, string> = {}): object {
+  return {
+    mcpServers: {
+      aiorchestration: {
+        command: "bun",
+        args: ["run", join(PROJECT_ROOT, "src/mcp-server.ts"), "--role", role],
+        env: {
+          PROJECT_ROOT,
+          ...extraEnv,
+        },
+      },
+    },
+  };
+}
+
+// Create generated config directory and write config files
+function setupGeneratedConfigs(): void {
+  // Create .generated directory if it doesn't exist
+  mkdirSync(GENERATED_DIR, { recursive: true });
+
+  // Generate config files for each role
+  const configs = {
+    planner: generateMcpConfig("planner"),
+    orche: generateMcpConfig("orche", { TARGET_REPO_ROOT: PROJECT_ROOT }),
+    reviewer: generateMcpConfig("reviewer"),
+    worker: generateMcpConfig("worker"),
+  };
+
+  for (const [role, config] of Object.entries(configs)) {
+    const configPath = join(GENERATED_DIR, `${role}.json`);
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  }
+
+  console.log(`Generated MCP configs in: ${GENERATED_DIR}`);
+}
 
 async function runCommand(cmd: string[]): Promise<string> {
   const proc = Bun.spawn(cmd, {
@@ -39,6 +81,9 @@ async function main() {
   console.log("Starting aiorchestration...");
   console.log(`Window name: ${WINDOW_NAME}`);
   console.log(`Project root: ${PROJECT_ROOT}`);
+
+  // Generate MCP config files dynamically
+  setupGeneratedConfigs();
 
   const insideTmux = await isInsideTmux();
 
@@ -102,12 +147,12 @@ async function main() {
   await setPaneTitle(plannerPane, "Planner");
 
   // Start orche in left pane (with pane IDs for watcher)
-  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} REVIEWER_PANE=${reviewerPane} claude --dangerously-skip-permissions --mcp-config ${PROJECT_ROOT}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
+  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} REVIEWER_PANE=${reviewerPane} claude --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
   await runCommand(["tmux", "send-keys", "-t", orchePane, orcheCmd]);
   await runCommand(["tmux", "send-keys", "-t", orchePane, "Enter"]);
 
   // Start reviewer in right pane
-  const reviewerCmd = `claude --dangerously-skip-permissions --mcp-config ${PROJECT_ROOT}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/reviewer-prompt.md)" "起動しました。check_messages を呼んでレビュー依頼を確認してください。"`;
+  const reviewerCmd = `claude --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/reviewer-prompt.md)" "起動しました。check_messages を呼んでレビュー依頼を確認してください。"`;
   await runCommand(["tmux", "send-keys", "-t", reviewerPane, reviewerCmd]);
   await runCommand(["tmux", "send-keys", "-t", reviewerPane, "Enter"]);
 
@@ -122,7 +167,7 @@ async function main() {
   console.log("");
 
   // Start planner in current pane (human interaction)
-  const plannerCmd = `claude --mcp-config ${PROJECT_ROOT}/planner.json --system-prompt "$(cat ${PROJECT_ROOT}/planner-prompt.md)"`;
+  const plannerCmd = `claude --mcp-config ${GENERATED_DIR}/planner.json --system-prompt "$(cat ${PROJECT_ROOT}/planner-prompt.md)"`;
 
   const proc = Bun.spawn(["bash", "-c", plannerCmd], {
     stdin: "inherit",
