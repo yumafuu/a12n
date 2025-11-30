@@ -147,12 +147,12 @@ async function main() {
   await setPaneTitle(plannerPane, "Planner");
 
   // Start orche in left pane (with pane IDs for watcher)
-  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} REVIEWER_PANE=${reviewerPane} claude --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
+  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} REVIEWER_PANE=${reviewerPane} claude --model sonnet --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
   await runCommand(["tmux", "send-keys", "-t", orchePane, orcheCmd]);
   await runCommand(["tmux", "send-keys", "-t", orchePane, "Enter"]);
 
   // Start reviewer in right pane
-  const reviewerCmd = `claude --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/reviewer-prompt.md)" "起動しました。check_messages を呼んでレビュー依頼を確認してください。"`;
+  const reviewerCmd = `claude --model opus --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/reviewer-prompt.md)" "起動しました。check_messages を呼んでレビュー依頼を確認してください。"`;
   await runCommand(["tmux", "send-keys", "-t", reviewerPane, reviewerCmd]);
   await runCommand(["tmux", "send-keys", "-t", reviewerPane, "Enter"]);
 
@@ -172,6 +172,7 @@ async function main() {
 
   const proc = Bun.spawn([
     "claude",
+    "--model", "opus",
     "--mcp-config", `${GENERATED_DIR}/planner.json`,
     "--system-prompt", await Bun.file(plannerPromptPath).text(),
   ], {

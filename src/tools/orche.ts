@@ -216,7 +216,7 @@ export const orcheHandlers = {
 
     // Create new tmux window - worker runs in worktree directory with auto-approve
     const workerPromptPath = `${projectRoot}/prompts/worker-prompt.md`;
-    const command = `cd ${worktreePath} && claude --dangerously-skip-permissions --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。まず check_messages を呼んでタスク内容を確認してください。"`;
+    const command = `cd ${worktreePath} && claude --model sonnet --dangerously-skip-permissions --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。まず check_messages を呼んでタスク内容を確認してください。"`;
 
     const windowId = await tmux.newWindow(command);
 
