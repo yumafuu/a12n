@@ -7,22 +7,29 @@ export const ROLE_COLORS = {
     fg: "white",
     bg: "colour54",      // Purple - for human interaction
     border: "colour54",
+    paneBgActive: "colour235",   // Active pane background
+    paneBgInactive: "colour237", // Inactive pane background (grayer)
   },
   orche: {
     fg: "white",
     bg: "colour24",      // Blue - orchestrator
     border: "colour24",
+    paneBgActive: "colour235",
+    paneBgInactive: "colour237",
   },
   reviewer: {
     fg: "colour226",     // Bright yellow text
     bg: "colour58",      // Dark olive background
     border: "colour226", // Bright yellow border
+    paneBgActive: "colour235",
+    paneBgInactive: "colour237",
   },
   worker: {
     fg: "white",
     bg: "colour22",      // Green - workers
     border: "colour22",
-    paneBg: "colour234", // Very dark gray for subtle background tint
+    paneBgActive: "colour234",   // Very dark gray for subtle background tint
+    paneBgInactive: "colour237", // Grayer when inactive
   },
 } as const;
 
@@ -54,9 +61,16 @@ export async function setPaneBorderColor(
   const color = ROLE_COLORS[role];
 
   try {
-    // Set pane style (foreground color)
+    // Set window-style for inactive panes (applies to all panes in window)
+    const paneBgInactive = "paneBgInactive" in color ? color.paneBgInactive : "colour237";
     await runTmuxCommand([
-      "select-pane", "-t", paneId, "-P", `fg=${color.fg},bg=default`
+      "set-option", "-t", paneId, "-p", "window-style", `bg=${paneBgInactive}`
+    ]);
+
+    // Set window-active-style for active pane
+    const paneBgActive = "paneBgActive" in color ? color.paneBgActive : "colour235";
+    await runTmuxCommand([
+      "set-option", "-t", paneId, "-p", "window-active-style", `bg=${paneBgActive}`
     ]);
 
     // Set pane-specific border style
@@ -101,10 +115,16 @@ export async function setWindowStyle(
       "display-message", "-t", windowId, "-p", "#{pane_id}"
     ]);
 
-    // Set subtle background tint for worker identification
-    const paneBg = "paneBg" in color ? color.paneBg : "default";
+    // Set window-style for inactive panes
+    const paneBgInactive = "paneBgInactive" in color ? color.paneBgInactive : "colour237";
     await runTmuxCommand([
-      "select-pane", "-t", paneId, "-P", `bg=${paneBg}`
+      "set-option", "-t", paneId, "-p", "window-style", `bg=${paneBgInactive}`
+    ]);
+
+    // Set window-active-style for active pane
+    const paneBgActive = "paneBgActive" in color ? color.paneBgActive : "colour235";
+    await runTmuxCommand([
+      "set-option", "-t", paneId, "-p", "window-active-style", `bg=${paneBgActive}`
     ]);
 
     // Set window status format with color
