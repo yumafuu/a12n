@@ -26,10 +26,36 @@ describe("tmux colors", () => {
       }
     });
 
-    test("worker role should have paneBg property", () => {
+    test("all roles should have paneBgActive and paneBgInactive properties", () => {
+      const roles: RoleType[] = ["planner", "orche", "reviewer", "worker"];
+
+      for (const role of roles) {
+        const color = ROLE_COLORS[role];
+        expect(color).toHaveProperty("paneBgActive");
+        expect(color).toHaveProperty("paneBgInactive");
+        expect(typeof color.paneBgActive).toBe("string");
+        expect(typeof color.paneBgInactive).toBe("string");
+      }
+    });
+
+    test("worker role should have correct background colors", () => {
       const workerColor = ROLE_COLORS.worker;
-      expect(workerColor).toHaveProperty("paneBg");
-      expect(workerColor.paneBg).toBe("colour234");
+      expect(workerColor.paneBgActive).toBe("colour234");
+      expect(workerColor.paneBgInactive).toBe("colour237");
+    });
+
+    test("inactive pane should be grayer than active pane", () => {
+      const roles: RoleType[] = ["planner", "orche", "reviewer", "worker"];
+
+      for (const role of roles) {
+        const color = ROLE_COLORS[role];
+        // Extract color numbers for comparison
+        const activeNum = parseInt(color.paneBgActive.replace("colour", ""));
+        const inactiveNum = parseInt(color.paneBgInactive.replace("colour", ""));
+
+        // Inactive should have higher number (lighter/grayer) than active
+        expect(inactiveNum).toBeGreaterThan(activeNum);
+      }
     });
 
     test("colors should be distinct for visual identification", () => {
