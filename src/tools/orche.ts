@@ -5,6 +5,7 @@ import * as tmux from "../lib/tmux.js";
 import { setWindowStyle, setWindowName } from "../lib/tmux.js";
 import { MessageType, TaskStatus } from "../types.js";
 import type { Message } from "../types.js";
+import { generateWorkerSettings, createClaudeSettings } from "../lib/claude-settings.js";
 // Tool definitions for orchestrator
 export const orcheTools = [
   {
@@ -244,9 +245,13 @@ export const orcheHandlers = {
     };
     await Bun.write(workerConfigPath, JSON.stringify(workerConfig, null, 2));
 
+    // Generate and create .claude/settings.local.json for worker
+    const workerSettings = generateWorkerSettings();
+    await createClaudeSettings(worktreePath, workerSettings);
+
     // Create new tmux window - worker runs in worktree directory with auto-approve
     const workerPromptPath = `${projectRoot}/prompts/worker-prompt.md`;
-    const command = `cd ${worktreePath} && claude --model sonnet --dangerously-skip-permissions --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。タスク内容は TASK_DESCRIPTION 環境変数に設定されています: ${params.description}"`;
+    const command = `cd ${worktreePath} && claude --model sonnet --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。タスク内容は TASK_DESCRIPTION 環境変数に設定されています: ${params.description}"`;
 
     const windowId = await tmux.newWindow(command);
 
