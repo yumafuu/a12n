@@ -5,13 +5,17 @@ import { $ } from "bun";
 const POLL_INTERVAL_MS = 2000;
 const DB_PATH = process.env.DB_PATH || "aiorchestration.db";
 const ORCHE_PANE = process.env.ORCHE_PANE || "";
-const REVIEWER_PANE = process.env.REVIEWER_PANE || "";
+const PROJECT_ROOT = process.env.PROJECT_ROOT || "";
+const GENERATED_DIR = process.env.GENERATED_DIR || "";
 
 // Track last checked sequence for each recipient
 const lastCheckedSeq: Record<string, number> = {};
 
 // Track worker pane IDs
 const workerPanes: Record<string, string> = {};
+
+// Track reviewer pane ID (spawned on-demand)
+let reviewerPaneId: string = "";
 
 function getDb(): Database {
   return new Database(DB_PATH);
@@ -57,26 +61,86 @@ function saveWatcherSeq(recipient: string, seq: number): void {
 }
 
 async function getPanes(): Promise<{ orche: string; reviewer: string }> {
-  let orchePane = ORCHE_PANE;
-  let reviewerPane = REVIEWER_PANE;
+  const orchePane = ORCHE_PANE;
 
-  if (!orchePane || !reviewerPane) {
-    // Try to get panes from environment or list
-    try {
-      const result = await $`tmux list-panes -F "#{pane_id}"`.text();
-      const panes = result.trim().split("\n");
-      if (panes.length >= 2) {
-        orchePane = orchePane || panes[0];
-        reviewerPane = reviewerPane || panes[1];
-      } else if (panes.length === 1) {
-        orchePane = orchePane || panes[0];
-      }
-    } catch {
-      console.error("[watcher] Failed to get panes");
-    }
+  // Reviewer pane is spawned on-demand, return current state
+  return { orche: orchePane, reviewer: reviewerPaneId };
+}
+
+async function spawnReviewer(): Promise<string> {
+  if (!ORCHE_PANE || !PROJECT_ROOT || !GENERATED_DIR) {
+    console.error("[watcher] Cannot spawn reviewer: missing ORCHE_PANE, PROJECT_ROOT, or GENERATED_DIR");
+    return "";
   }
 
-  return { orche: orchePane, reviewer: reviewerPane };
+  try {
+    // Import tmux utilities
+    const { setPaneBorderColor, setPaneTitle } = await import("./lib/tmux.js");
+
+    console.log("[watcher] Spawning reviewer pane...");
+
+    // Split window from orche pane
+    const splitProc = Bun.spawn([
+      "tmux",
+      "split-window",
+      "-t",
+      ORCHE_PANE,
+      "-h",
+      "-P",
+      "-F",
+      "#{pane_id}",
+    ], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const newPaneId = (await new Response(splitProc.stdout).text()).trim();
+    await splitProc.exited;
+
+    if (!newPaneId) {
+      console.error("[watcher] Failed to get new pane ID");
+      return "";
+    }
+
+    console.log(`[watcher] Created reviewer pane: ${newPaneId}`);
+
+    // Apply colors to reviewer pane
+    await setPaneBorderColor(newPaneId, "reviewer");
+    await setPaneTitle(newPaneId, "Reviewer");
+
+    // Start reviewer in the new pane
+    const reviewerCmd = `claude --model opus --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/reviewer-prompt.md)" "レビュー依頼が来ています。check_messages を呼んでレビューしてください。"`;
+
+    const sendProc = Bun.spawn([
+      "tmux",
+      "send-keys",
+      "-t",
+      newPaneId,
+      reviewerCmd,
+    ], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    await sendProc.exited;
+
+    const enterProc = Bun.spawn([
+      "tmux",
+      "send-keys",
+      "-t",
+      newPaneId,
+      "Enter",
+    ], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    await enterProc.exited;
+
+    console.log("[watcher] Reviewer started successfully");
+    return newPaneId;
+  } catch (error) {
+    console.error("[watcher] Failed to spawn reviewer:", error);
+    return "";
+  }
 }
 
 async function checkForNewMessages(
@@ -229,16 +293,16 @@ async function main(): Promise<void> {
 
   const panes = await getPanes();
   console.log(`[watcher] Orche pane: ${panes.orche || "(not found)"}`);
-  console.log(`[watcher] Reviewer pane: ${panes.reviewer || "(not found)"}`);
+  console.log(`[watcher] Reviewer pane: (on-demand, will spawn when REVIEW_REQUEST is received)`);
 
-  if (!panes.orche && !panes.reviewer) {
-    console.error("[watcher] Could not determine any panes. Exiting.");
+  if (!panes.orche) {
+    console.error("[watcher] Could not determine orche pane. Exiting.");
     process.exit(1);
   }
 
   // Initialize lastCheckedSeq from persisted state
   await initializeSeq("orche");
-  await initializeSeq("reviewer");
+  // Reviewer seq will be initialized when spawned
 
   // Main loop
   while (true) {
@@ -263,12 +327,26 @@ async function main(): Promise<void> {
         console.log(
           `[watcher] Found ${reviewerMessages.count} new message(s) for reviewer: ${reviewerMessages.types.join(", ")}`
         );
-        await notify(
-          panes.reviewer,
-          "reviewer",
-          reviewerMessages.types,
-          reviewerMessages.from
-        );
+
+        // If REVIEW_REQUEST is detected and reviewer is not running, spawn it
+        if (reviewerMessages.types.includes("REVIEW_REQUEST") && !reviewerPaneId) {
+          console.log("[watcher] REVIEW_REQUEST detected, spawning reviewer...");
+          reviewerPaneId = await spawnReviewer();
+          if (reviewerPaneId) {
+            // Initialize seq tracking for reviewer
+            await initializeSeq("reviewer");
+          }
+        }
+
+        // Notify reviewer if it's running
+        if (reviewerPaneId) {
+          await notify(
+            reviewerPaneId,
+            "reviewer",
+            reviewerMessages.types,
+            reviewerMessages.from
+          );
+        }
       }
 
       // Check messages for active workers

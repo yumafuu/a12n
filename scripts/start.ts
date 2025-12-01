@@ -116,53 +116,30 @@ async function main() {
     "#{pane_id}",
   ]);
 
-  // Split horizontally for reviewer
-  await runCommand([
-    "tmux",
-    "split-window",
-    "-t",
-    WINDOW_NAME,
-    "-h",
-  ]);
-
-  // Get reviewer pane ID (the new pane after split)
-  const reviewerPane = await runCommand([
-    "tmux",
-    "display-message",
-    "-t",
-    WINDOW_NAME,
-    "-p",
-    "#{pane_id}",
-  ]);
+  // Reviewer pane is not created on startup (on-demand only)
+  const reviewerPane = "";
 
   // Apply colors to orche pane
   await setPaneBorderColor(orchePane, "orche");
   await setPaneTitle(orchePane, "Orche");
 
-  // Apply colors to reviewer pane
-  await setPaneBorderColor(reviewerPane, "reviewer");
-  await setPaneTitle(reviewerPane, "Reviewer");
-
   // Apply colors to planner pane (current pane)
   await setPaneBorderColor(plannerPane, "planner");
   await setPaneTitle(plannerPane, "Planner");
 
-  // Start orche in left pane (with pane IDs for watcher)
-  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} REVIEWER_PANE=${reviewerPane} claude --model sonnet --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
+  // Start orche in pane (with pane IDs for watcher)
+  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} PROJECT_ROOT=${PROJECT_ROOT} GENERATED_DIR=${GENERATED_DIR} claude --model sonnet --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
   await runCommand(["tmux", "send-keys", "-t", orchePane, orcheCmd]);
   await runCommand(["tmux", "send-keys", "-t", orchePane, "Enter"]);
 
-  // Start reviewer in right pane
-  const reviewerCmd = `claude --model opus --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/reviewer-prompt.md)" "起動しました。check_messages を呼んでレビュー依頼を確認してください。"`;
-  await runCommand(["tmux", "send-keys", "-t", reviewerPane, reviewerCmd]);
-  await runCommand(["tmux", "send-keys", "-t", reviewerPane, "Enter"]);
+  // Reviewer is not started on startup (on-demand only, launched by watcher)
 
   console.log("");
   console.log("Setup complete!");
   console.log(`  Current pane (${plannerPane}): Planner (human interaction)`);
   console.log(`  Window '${WINDOW_NAME}':`);
-  console.log(`    - Left pane (${orchePane}): Orche (workers spawn here)`);
-  console.log(`    - Right pane (${reviewerPane}): Reviewer (autonomous)`);
+  console.log(`    - Pane (${orchePane}): Orche (workers spawn here)`);
+  console.log(`    - Reviewer will be spawned on-demand by watcher`);
   console.log("");
   console.log("Starting planner...");
   console.log("");

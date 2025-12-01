@@ -137,6 +137,7 @@ function startWatcher(): void {
     env: {
       ...process.env,
       PROJECT_ROOT: projectRoot,
+      GENERATED_DIR: process.env.GENERATED_DIR || `${projectRoot}/.generated`,
       DB_PATH: process.env.DB_PATH || `${projectRoot}/aiorchestration.db`,
       PLANNER_PANE: process.env.PLANNER_PANE || "",
       ORCHE_PANE: process.env.ORCHE_PANE || "",
