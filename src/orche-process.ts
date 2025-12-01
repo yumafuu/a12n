@@ -223,7 +223,11 @@ async function notify(
 }
 
 // Spawn reviewer pane on-demand
-async function spawnReviewer(): Promise<string> {
+async function spawnReviewer(
+  taskId?: string,
+  prUrl?: string,
+  summary?: string
+): Promise<string> {
   if (!ORCHE_PANE || !PROJECT_ROOT || !GENERATED_DIR) {
     console.error("[orche] Cannot spawn reviewer: missing ORCHE_PANE, PROJECT_ROOT, or GENERATED_DIR");
     return "";
@@ -306,8 +310,14 @@ async function spawnReviewer(): Promise<string> {
     const reviewerSettings = generateReviewerSettings();
     await createClaudeSettings(PROJECT_ROOT, reviewerSettings);
 
+    // Build initial message for reviewer
+    let initialMessage = "レビュー依頼が来ています。check_review_requests を呼んでレビューしてください。";
+    if (taskId && prUrl && summary) {
+      initialMessage = `レビュー依頼が来ています。\n\nTask ID: ${taskId}\nPR URL: ${prUrl}\nSummary: ${summary}\n\ncheck_review_requests を呼んで詳細を確認してレビューしてください。`;
+    }
+
     // Start reviewer in the new pane
-    const reviewerCmd = `claude --model opus --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/reviewer-prompt.md)" "レビュー依頼が来ています。check_review_requests を呼んでレビューしてください。"`;
+    const reviewerCmd = `claude --model opus --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/reviewer-prompt.md)" "${initialMessage}"`;
 
     const sendProc = Bun.spawn([
       "tmux",
@@ -441,7 +451,33 @@ async function handleReviewRequested(event: Event): Promise<void> {
     // Spawn reviewer if not already running
     if (!reviewerPaneId) {
       log("Reviewer not running, spawning reviewer pane...");
-      reviewerPaneId = await spawnReviewer();
+      reviewerPaneId = await spawnReviewer(
+        event.task_id,
+        payload.pr_url,
+        payload.summary
+      );
+    } else {
+      // Reviewer is already running, notify with PR info
+      log("Reviewer already running, sending notification with PR info...");
+      const notificationMessage = `新しいレビュー依頼が来ています。\n\nTask ID: ${event.task_id}\nPR URL: ${payload.pr_url}\nSummary: ${payload.summary}\n\ncheck_review_requests を呼んで確認してください。`;
+
+      try {
+        const proc1 = Bun.spawn(["tmux", "send-keys", "-t", reviewerPaneId, notificationMessage], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        await proc1.exited;
+
+        const proc2 = Bun.spawn(["tmux", "send-keys", "-t", reviewerPaneId, "Enter"], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        await proc2.exited;
+
+        log(`Notified reviewer about task ${event.task_id}`);
+      } catch (error) {
+        console.error(`[${formatTimestamp()}] Failed to notify reviewer:`, error);
+      }
     }
 
     log(`Reviewer will be notified about task ${event.task_id}`);
