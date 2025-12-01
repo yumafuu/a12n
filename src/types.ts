@@ -1,4 +1,14 @@
-// Message types
+// Event types for event-driven architecture
+export const EventType = {
+  TASK_CREATE: "task-create",
+  REVIEW_REQUESTED: "review-requested",
+  REVIEW_APPROVED: "review-approved",
+  REVIEW_DENIED: "review-denied",
+} as const;
+
+export type EventType = (typeof EventType)[keyof typeof EventType];
+
+// Legacy message types (kept for backward compatibility during migration)
 export const MessageType = {
   TASK_ASSIGN: "TASK_ASSIGN",
   PROGRESS: "PROGRESS",
@@ -31,7 +41,36 @@ export const WorkerStatus = {
 
 export type WorkerStatus = (typeof WorkerStatus)[keyof typeof WorkerStatus];
 
-// Message payloads
+// Event payloads for event-driven architecture
+export type TaskCreateEventPayload = {
+  task_id: string;
+  description: string;
+  context?: string;
+  branch_name: string;
+};
+
+export type ReviewRequestedEventPayload = {
+  task_id: string;
+  pr_url: string;
+  summary: string;
+};
+
+export type ReviewApprovedEventPayload = {
+  task_id: string;
+};
+
+export type ReviewDeniedEventPayload = {
+  task_id: string;
+  feedback: string;
+};
+
+export type EventPayload =
+  | TaskCreateEventPayload
+  | ReviewRequestedEventPayload
+  | ReviewApprovedEventPayload
+  | ReviewDeniedEventPayload;
+
+// Legacy message payloads (kept for backward compatibility)
 export type TaskAssignPayload = {
   task_id: string;
   description: string;
@@ -88,7 +127,18 @@ export type MessagePayload =
   | TaskCompletePayload
   | EmergencyStopPayload;
 
-// Base message structure
+// Event structure for event-driven architecture
+export type Event = {
+  id: string;
+  seq: number;
+  timestamp: number;
+  type: EventType;
+  task_id: string;
+  payload: EventPayload;
+  processed: boolean;
+};
+
+// Base message structure (legacy)
 export type Message = {
   id: string;
   timestamp: number;

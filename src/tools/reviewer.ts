@@ -1,43 +1,38 @@
 import { z } from "zod";
 import * as db from "../lib/db.js";
-import { MessageType } from "../types.js";
-import type { Message } from "../types.js";
-import { getSocketClient } from "../lib/socket.js";
-
-// Queue for messages received via socket
-const socketMessageQueue: Message[] = [];
-
-// Setup socket message handler
-export function setupSocketMessageHandler(): void {
-  const socketClient = getSocketClient("reviewer", "reviewer");
-  socketClient.onMessage((message) => {
-    // Queue messages for reviewer
-    if (message.to === "reviewer") {
-      socketMessageQueue.push(message);
-    }
-  });
-}
+import { EventType } from "../types.js";
+import type {
+  ReviewRequestedEventPayload,
+  ReviewApprovedEventPayload,
+  ReviewDeniedEventPayload,
+} from "../types.js";
 
 // Tool definitions for reviewer
 export const reviewerTools = [
   {
-    name: "check_messages",
+    name: "check_review_requests",
     description:
-      "Check for review requests from orchestrator. Call this regularly.",
+      "Check for review-requested events. Call this regularly to find PRs that need review.",
     inputSchema: z.object({}),
   },
   {
-    name: "send_review_result",
-    description: "Send review result back to orchestrator",
+    name: "approve_review",
+    description: "Approve a PR and register review-approved event",
     inputSchema: z.object({
       task_id: z.string().describe("Task ID"),
-      approved: z.boolean().describe("Whether the PR is approved"),
-      feedback: z.string().optional().describe("Feedback for the worker"),
+    }),
+  },
+  {
+    name: "deny_review",
+    description: "Deny a PR with feedback and register review-denied event",
+    inputSchema: z.object({
+      task_id: z.string().describe("Task ID"),
+      feedback: z.string().describe("Feedback for the worker on what needs to be fixed"),
     }),
   },
   {
     name: "get_task_info",
-    description: "Get detailed information about a task",
+    description: "Get detailed information about a task including PR URL",
     inputSchema: z.object({
       task_id: z.string().describe("Task ID to get info for"),
     }),
@@ -46,79 +41,86 @@ export const reviewerTools = [
 
 // Tool handlers
 export const reviewerHandlers = {
-  async check_messages(): Promise<string> {
-    // First, check socket queue for real-time messages
-    const socketMessages = socketMessageQueue.splice(0);
-
-    // Also check database for any missed messages (fallback)
-    // Use "reviewer" as reader_id - messages are marked as read automatically
-    const { messages: dbMessages } = await db.checkMessages("reviewer", "reviewer");
-
-    // Merge and dedupe messages
-    const messageMap = new Map<string, Message>();
-    for (const msg of dbMessages) {
-      messageMap.set(msg.id, msg);
-    }
-    for (const msg of socketMessages) {
-      messageMap.set(msg.id, msg);
-    }
-    const allMessages = Array.from(messageMap.values());
-
-    // Filter for REVIEW_REQUEST messages only
-    const reviewRequests = allMessages.filter(
-      (m) => m.type === MessageType.REVIEW_REQUEST
+  async check_review_requests(): Promise<string> {
+    // Get all unprocessed review-requested events
+    const events = await db.getUnprocessedEvents();
+    const reviewRequestedEvents = events.filter(
+      (e) => e.type === EventType.REVIEW_REQUESTED
     );
 
     return JSON.stringify({
       success: true,
-      messages: reviewRequests.map((m) => ({
-        id: m.id,
-        from: m.from,
-        type: m.type,
-        payload: m.payload,
-        timestamp: new Date(m.timestamp).toISOString(),
-      })),
-      count: reviewRequests.length,
+      events: reviewRequestedEvents.map((e) => {
+        const payload = e.payload as ReviewRequestedEventPayload;
+        return {
+          id: e.id,
+          task_id: e.task_id,
+          pr_url: payload.pr_url,
+          summary: payload.summary,
+          timestamp: new Date(e.timestamp).toISOString(),
+        };
+      }),
+      count: reviewRequestedEvents.length,
     });
   },
 
-  async send_review_result(params: {
-    task_id: string;
-    approved: boolean;
-    feedback?: string;
-  }): Promise<string> {
-    // Send review result to orche
-    const messageId = await db.sendMessage(
-      "orche",
-      "reviewer",
-      MessageType.REVIEW_RESULT,
-      {
-        task_id: params.task_id,
-        approved: params.approved,
-        feedback: params.feedback,
-      }
+  async approve_review(params: { task_id: string }): Promise<string> {
+    // Register review-approved event
+    const payload: ReviewApprovedEventPayload = {
+      task_id: params.task_id,
+    };
+
+    const eventId = await db.registerEvent(
+      EventType.REVIEW_APPROVED,
+      params.task_id,
+      payload
     );
 
-    // Also notify planner about review completion
-    await db.sendMessage(
-      "planner",
-      "reviewer",
-      MessageType.PROGRESS,
-      {
-        task_id: params.task_id,
-        status: params.approved ? "APPROVED" : "NEEDS_REVISION",
-        message: params.approved
-          ? `Task ${params.task_id} approved. PR will be merged.`
-          : `Task ${params.task_id} needs revision: ${params.feedback}`,
-      }
+    // Mark the review-requested event as processed
+    const reviewRequestedEvent = await db.getLatestUnprocessedEvent(
+      params.task_id,
+      EventType.REVIEW_REQUESTED
     );
+    if (reviewRequestedEvent) {
+      await db.markEventProcessed(reviewRequestedEvent.id);
+    }
 
     return JSON.stringify({
       success: true,
-      message_id: messageId,
-      message: params.approved
-        ? `Task ${params.task_id} approved`
-        : `Task ${params.task_id} needs revision`,
+      event_id: eventId,
+      message: `Review approved for task ${params.task_id}`,
+    });
+  },
+
+  async deny_review(params: {
+    task_id: string;
+    feedback: string;
+  }): Promise<string> {
+    // Register review-denied event
+    const payload: ReviewDeniedEventPayload = {
+      task_id: params.task_id,
+      feedback: params.feedback,
+    };
+
+    const eventId = await db.registerEvent(
+      EventType.REVIEW_DENIED,
+      params.task_id,
+      payload
+    );
+
+    // Mark the review-requested event as processed
+    const reviewRequestedEvent = await db.getLatestUnprocessedEvent(
+      params.task_id,
+      EventType.REVIEW_REQUESTED
+    );
+    if (reviewRequestedEvent) {
+      await db.markEventProcessed(reviewRequestedEvent.id);
+    }
+
+    return JSON.stringify({
+      success: true,
+      event_id: eventId,
+      message: `Review denied for task ${params.task_id} with feedback`,
     });
   },
 

@@ -1,6 +1,9 @@
 import { Database } from "bun:sqlite";
 import { v4 as uuidv4 } from "uuid";
 import type {
+  Event,
+  EventType,
+  EventPayload,
   Message,
   MessageType,
   MessagePayload,
@@ -39,6 +42,20 @@ export function closeDb(): void {
 function initSchema(): void {
   const database = getDb();
 
+  // Event table for event-driven architecture
+  database.run(`
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      seq INTEGER UNIQUE,
+      timestamp INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      task_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      processed INTEGER DEFAULT 0
+    )
+  `);
+
+  // Legacy messages table (kept for backward compatibility)
   database.run(`
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
@@ -112,6 +129,9 @@ function initSchema(): void {
   `);
 
   // Create indexes
+  database.run(`CREATE INDEX IF NOT EXISTS idx_events_task_id ON events(task_id)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_events_processed ON events(processed)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_events_seq ON events(seq)`);
   database.run(`CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_id)`);
   database.run(`CREATE INDEX IF NOT EXISTS idx_messages_seq ON messages(seq)`);
   database.run(`CREATE INDEX IF NOT EXISTS idx_workers_heartbeat ON workers(last_heartbeat)`);
@@ -560,5 +580,145 @@ export async function setAgentBusyWithTimeout(
   setTimeout(async () => {
     await setAgentStatus(agentId, "idle");
   }, timeoutMs);
+}
+
+// ============================================================================
+// Event operations for event-driven architecture
+// ============================================================================
+
+// Get next event sequence number
+function getNextEventSeq(): number {
+  const database = getDb();
+  const result = database.query("SELECT MAX(seq) as max_seq FROM events").get() as { max_seq: number | null };
+  return (result?.max_seq || 0) + 1;
+}
+
+// Register a new event
+export async function registerEvent(
+  type: EventType,
+  taskId: string,
+  payload: EventPayload
+): Promise<string> {
+  const database = getDb();
+  const event: Omit<Event, "seq" | "processed"> = {
+    id: uuidv4(),
+    timestamp: Date.now(),
+    type,
+    task_id: taskId,
+    payload,
+  };
+
+  const seq = getNextEventSeq();
+
+  database.run(
+    `INSERT INTO events (id, seq, timestamp, type, task_id, payload, processed) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [event.id, seq, event.timestamp, event.type, event.task_id, JSON.stringify(event.payload), 0]
+  );
+
+  return event.id;
+}
+
+// Get unprocessed events
+export async function getUnprocessedEvents(): Promise<Event[]> {
+  const database = getDb();
+
+  const rows = database.query(
+    `SELECT id, seq, timestamp, type, task_id, payload, processed
+     FROM events
+     WHERE processed = 0
+     ORDER BY seq ASC`
+  ).all() as Array<{
+    id: string;
+    seq: number;
+    timestamp: number;
+    type: string;
+    task_id: string;
+    payload: string;
+    processed: number;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    seq: row.seq,
+    timestamp: row.timestamp,
+    type: row.type as EventType,
+    task_id: row.task_id,
+    payload: JSON.parse(row.payload),
+    processed: row.processed === 1,
+  }));
+}
+
+// Mark event as processed
+export async function markEventProcessed(eventId: string): Promise<void> {
+  const database = getDb();
+  database.run(`UPDATE events SET processed = 1 WHERE id = ?`, [eventId]);
+}
+
+// Get events by task ID
+export async function getEventsByTaskId(taskId: string): Promise<Event[]> {
+  const database = getDb();
+
+  const rows = database.query(
+    `SELECT id, seq, timestamp, type, task_id, payload, processed
+     FROM events
+     WHERE task_id = ?
+     ORDER BY seq ASC`
+  ).all(taskId) as Array<{
+    id: string;
+    seq: number;
+    timestamp: number;
+    type: string;
+    task_id: string;
+    payload: string;
+    processed: number;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    seq: row.seq,
+    timestamp: row.timestamp,
+    type: row.type as EventType,
+    task_id: row.task_id,
+    payload: JSON.parse(row.payload),
+    processed: row.processed === 1,
+  }));
+}
+
+// Get latest unprocessed event by type for a task
+export async function getLatestUnprocessedEvent(
+  taskId: string,
+  type: EventType
+): Promise<Event | null> {
+  const database = getDb();
+
+  const row = database.query(
+    `SELECT id, seq, timestamp, type, task_id, payload, processed
+     FROM events
+     WHERE task_id = ? AND type = ? AND processed = 0
+     ORDER BY seq DESC
+     LIMIT 1`
+  ).get(taskId, type) as {
+    id: string;
+    seq: number;
+    timestamp: number;
+    type: string;
+    task_id: string;
+    payload: string;
+    processed: number;
+  } | null;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    seq: row.seq,
+    timestamp: row.timestamp,
+    type: row.type as EventType,
+    task_id: row.task_id,
+    payload: JSON.parse(row.payload),
+    processed: row.processed === 1,
+  };
 }
 
