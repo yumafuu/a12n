@@ -34,6 +34,7 @@ export const orcheTools = [
         .describe("Task ID (auto-generated if not provided)"),
       description: z.string().describe("Task description for the worker"),
       context: z.string().optional().describe("Additional context for the task"),
+      branch_name: z.string().optional().describe("Custom branch name (e.g., 'feat/add-user-auth'). If not specified, defaults to 'task/{taskId}'"),
     }),
   },
   {
@@ -102,10 +103,11 @@ function getTargetRepoRoot(): string {
 // Create git worktree for a worker
 async function createWorktree(
   taskId: string,
-  workerId: string
+  workerId: string,
+  customBranchName?: string
 ): Promise<{ worktreePath: string; branchName: string }> {
   const targetRepo = getTargetRepoRoot();
-  const branchName = `task/${taskId.slice(0, 8)}`;
+  const branchName = customBranchName || `task/${taskId.slice(0, 8)}`;
   const worktreePath = `${targetRepo}/.worktrees/${workerId}`;
 
   // Create .worktrees directory if it doesn't exist
@@ -171,13 +173,14 @@ export const orcheHandlers = {
     task_id?: string;
     description: string;
     context?: string;
+    branch_name?: string;
   }): Promise<string> {
     const taskId = params.task_id || uuidv4();
     const workerId = `worker-${uuidv4().slice(0, 8)}`;
     const projectRoot = getProjectRoot();
 
     // Create git worktree for this worker
-    const { worktreePath, branchName } = await createWorktree(taskId, workerId);
+    const { worktreePath, branchName } = await createWorktree(taskId, workerId, params.branch_name);
 
     // Create task in DB with worktree info
     await db.createTask(
@@ -404,7 +407,7 @@ export const orcheHandlers = {
         await db.sendMessage("reviewer", "orche", MessageType.REVIEW_REQUEST, payload);
       } else if (msg.type === MessageType.TASK_ASSIGN && msg.from === "planner") {
         // Handle task from planner - spawn worker
-        const payload = msg.payload as { description: string; context?: string };
+        const payload = msg.payload as { description: string; context?: string; branch_name?: string };
         // This will be handled by the caller who should call spawn_worker
       }
     }

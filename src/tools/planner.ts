@@ -26,6 +26,7 @@ export const plannerTools = [
     inputSchema: z.object({
       description: z.string().describe("Clear and specific task description"),
       context: z.string().optional().describe("Additional context for the task"),
+      branch_name: z.string().optional().describe("Custom branch name (e.g., 'feat/add-user-auth'). If not specified, defaults to 'task/{taskId}'"),
     }),
   },
   {
@@ -45,6 +46,7 @@ export const plannerHandlers = {
   async send_task_to_orche(params: {
     description: string;
     context?: string;
+    branch_name?: string;
   }): Promise<string> {
     // Send task to orche
     const messageId = await db.sendMessage(
@@ -55,6 +57,7 @@ export const plannerHandlers = {
         task_id: "", // orche will generate
         description: params.description,
         context: params.context,
+        branch_name: params.branch_name,
       }
     );
 
