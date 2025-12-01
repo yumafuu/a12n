@@ -1,11 +1,10 @@
 #!/usr/bin/env bun
 /**
- * Startup script for aiorchestration
- * - Planner runs in the current pane (for human interaction)
- * - Orche, Reviewer, and workers run in a separate window (autonomous)
+ * CLI script for aiorchestration
+ * Supports subcommands: start, stop, status, clean
  */
 
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import {
   setPaneBorderColor,
@@ -19,8 +18,6 @@ function generateUid(): string {
   return Math.random().toString(36).substring(2, 8);
 }
 
-const UID = generateUid();
-const WINDOW_NAME = `agents-${UID}`;
 const PROJECT_ROOT = import.meta.dir.replace("/scripts", "");
 const TARGET_REPO = process.cwd(); // Directory where aio was launched
 
@@ -46,7 +43,7 @@ function generateMcpConfig(role: string, extraEnv: Record<string, string> = {}):
 }
 
 // Create generated config directory and write config files
-function setupGeneratedConfigs(): void {
+function setupGeneratedConfigs(uid: string): void {
   // Create .generated directory if it doesn't exist
   mkdirSync(GENERATED_DIR, { recursive: true });
 
@@ -61,7 +58,7 @@ function setupGeneratedConfigs(): void {
       TARGET_REPO_ROOT: TARGET_REPO,
       PROJECT_ROOT: PROJECT_ROOT,
       GENERATED_DIR: GENERATED_DIR,
-      SESSION_UID: UID,
+      SESSION_UID: uid,
     }),
     reviewer: generateMcpConfig("reviewer"),
     worker: generateMcpConfig("worker"),
@@ -89,7 +86,11 @@ async function isInsideTmux(): Promise<boolean> {
   return !!process.env.TMUX;
 }
 
-async function main() {
+// Subcommand: start (default behavior)
+async function startSession() {
+  const UID = generateUid();
+  const WINDOW_NAME = `agents-${UID}`;
+
   console.log("Starting aiorchestration...");
   console.log(`Window name: ${WINDOW_NAME}`);
   console.log(`Project root: ${PROJECT_ROOT}`);
@@ -97,7 +98,7 @@ async function main() {
   console.log(`Database: ${TARGET_REPO}/.aio/aiorchestration.db`);
 
   // Generate MCP config files dynamically
-  setupGeneratedConfigs();
+  setupGeneratedConfigs(UID);
 
   const insideTmux = await isInsideTmux();
 
@@ -188,6 +189,189 @@ async function main() {
   console.log("Switch to orche window:");
   console.log(`  tmux select-window -t ${WINDOW_NAME}`);
   console.log("");
+}
+
+// Subcommand: stop [uid]
+async function stopSession(uid?: string) {
+  const insideTmux = await isInsideTmux();
+
+  if (!insideTmux) {
+    console.error("Error: Must be run inside tmux");
+    process.exit(1);
+  }
+
+  if (uid) {
+    // Stop specific session by UID
+    const windowName = `agents-${uid}`;
+    try {
+      const windows = await runCommand(["tmux", "list-windows", "-F", "#{window_name}"]);
+      const windowList = windows.split("\n");
+
+      if (windowList.includes(windowName)) {
+        await runCommand(["tmux", "kill-window", "-t", windowName]);
+        console.log(`Stopped session: ${uid}`);
+      } else {
+        console.error(`Session not found: ${uid}`);
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error(`Failed to stop session: ${error}`);
+      process.exit(1);
+    }
+  } else {
+    // Stop all aiorchestration sessions
+    try {
+      const windows = await runCommand(["tmux", "list-windows", "-F", "#{window_name}"]);
+      const windowList = windows.split("\n").filter((w) => w.startsWith("agents-"));
+
+      if (windowList.length === 0) {
+        console.log("No aiorchestration sessions found");
+        return;
+      }
+
+      for (const windowName of windowList) {
+        await runCommand(["tmux", "kill-window", "-t", windowName]);
+        const uid = windowName.replace("agents-", "");
+        console.log(`Stopped session: ${uid}`);
+      }
+    } catch (error) {
+      console.error(`Failed to stop sessions: ${error}`);
+      process.exit(1);
+    }
+  }
+}
+
+// Subcommand: status
+async function showStatus() {
+  const insideTmux = await isInsideTmux();
+
+  if (!insideTmux) {
+    console.error("Error: Must be run inside tmux");
+    process.exit(1);
+  }
+
+  try {
+    const windows = await runCommand(["tmux", "list-windows", "-F", "#{window_name}:#{window_id}"]);
+    const windowList = windows
+      .split("\n")
+      .filter((w) => w.startsWith("agents-"))
+      .map((w) => {
+        const [name, id] = w.split(":");
+        return { uid: name.replace("agents-", ""), windowId: id };
+      });
+
+    if (windowList.length === 0) {
+      console.log("No aiorchestration sessions running");
+      return;
+    }
+
+    console.log("Active aiorchestration sessions:");
+    for (const { uid, windowId } of windowList) {
+      const panes = await runCommand([
+        "tmux",
+        "list-panes",
+        "-t",
+        windowId,
+        "-F",
+        "#{pane_title}",
+      ]);
+      const paneList = panes.split("\n").filter((p) => p);
+      console.log(`  - Session: ${uid}`);
+      console.log(`    Window: ${windowId}`);
+      console.log(`    Panes: ${paneList.join(", ")}`);
+    }
+
+    // Check database status
+    const dbPath = join(TARGET_REPO, ".aio", "aiorchestration.db");
+    if (existsSync(dbPath)) {
+      console.log(`\nDatabase: ${dbPath} (exists)`);
+    } else {
+      console.log(`\nDatabase: ${dbPath} (not found)`);
+    }
+  } catch (error) {
+    console.error(`Failed to show status: ${error}`);
+    process.exit(1);
+  }
+}
+
+// Subcommand: clean
+async function cleanData() {
+  const aioDir = join(TARGET_REPO, ".aio");
+
+  if (!existsSync(aioDir)) {
+    console.log("No data to clean (no .aio directory found)");
+    return;
+  }
+
+  try {
+    // Check for active sessions
+    const insideTmux = await isInsideTmux();
+    if (insideTmux) {
+      const windows = await runCommand(["tmux", "list-windows", "-F", "#{window_name}"]);
+      const hasActiveSessions = windows.split("\n").some((w) => w.startsWith("agents-"));
+
+      if (hasActiveSessions) {
+        console.error("Error: Active sessions detected. Please stop all sessions first:");
+        console.error("  aio stop");
+        process.exit(1);
+      }
+    }
+
+    // Clean .aio directory
+    rmSync(aioDir, { recursive: true, force: true });
+    console.log("Cleaned aiorchestration data:");
+    console.log(`  - Removed: ${aioDir}`);
+  } catch (error) {
+    console.error(`Failed to clean data: ${error}`);
+    process.exit(1);
+  }
+}
+
+// Show help
+function showHelp() {
+  console.log("aiorchestration - AI agent orchestration system\n");
+  console.log("Usage:");
+  console.log("  aio [start]       Start a new orchestration session");
+  console.log("  aio stop [uid]    Stop session(s) (all if uid not specified)");
+  console.log("  aio status        Show active sessions and status");
+  console.log("  aio clean         Clean data files (.aio directory)");
+  console.log("  aio help          Show this help message\n");
+  console.log("Examples:");
+  console.log("  aio               # Start new session");
+  console.log("  aio stop wm3gbt   # Stop specific session");
+  console.log("  aio stop          # Stop all sessions");
+  console.log("  aio status        # Show all active sessions");
+  console.log("  aio clean         # Clean all data files");
+}
+
+// Main entry point
+async function main() {
+  const args = process.argv.slice(2);
+  const command = args[0] || "start";
+
+  switch (command) {
+    case "start":
+      await startSession();
+      break;
+    case "stop":
+      await stopSession(args[1]);
+      break;
+    case "status":
+      await showStatus();
+      break;
+    case "clean":
+      await cleanData();
+      break;
+    case "help":
+    case "--help":
+    case "-h":
+      showHelp();
+      break;
+    default:
+      console.error(`Unknown command: ${command}`);
+      console.error("Run 'aio help' for usage information");
+      process.exit(1);
+  }
 }
 
 main().catch(console.error);
