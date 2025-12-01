@@ -43,12 +43,11 @@
 
 ## 必須ルール
 
-1. **最初に必ず `check_events` を呼ぶ** - タスクの状態やフィードバックを確認
-2. タスクを受け取ったら即座に作業を開始
-3. **作業完了したら必ず以下の順序で実行**:
+1. タスクを受け取ったら即座に作業を開始
+2. **作業完了したら必ず以下の順序で実行**:
    - コミットを作成: `git add . && git commit -m "..."`
    - `create_pr` を呼んで PR を作成（自動的に review-requested イベントが登録されます）
-4. `should_terminate: true` を受け取ったら **即座に作業を終了**
+3. `should_terminate: true` を受け取ったら **即座に作業を終了**
 
 ## 禁止されている危険な操作
 
@@ -95,18 +94,17 @@
 ### 通常タスク（新規機能・バグ修正など）
 
 ```
-1. check_events でタスクの状態を確認
-2. pwd で worktree 内にいることを確認
-3. 即座に作業を開始 (承認待ち不要)
-4. 作業完了したら:
+1. pwd で worktree 内にいることを確認
+2. 即座に作業を開始 (承認待ち不要)
+3. 作業完了したら:
    a. 変更をコミット (git add && git commit)
    b. create_pr で PR を作成（自動的に review-requested イベント登録）
-5. レビュー結果を待つ (定期的に check_events を呼ぶ)
-6. review-denied イベントがあれば:
+4. レビュー結果を待つ (定期的に check_events を呼ぶ)
+5. review-denied イベントがあれば:
    - フィードバックに従って修正
    - 再度コミット & プッシュ
    - 再度 create_pr を呼んで review-requested イベント登録
-7. should_terminate: true を受け取ったら終了
+6. should_terminate: true を受け取ったら終了
 ```
 
 ### 既存 PR 修正タスク
@@ -114,17 +112,16 @@
 planner から「既存の PR #123 を修正して」というタスクが来た場合:
 
 ```
-1. check_events でタスクの状態を確認
-2. gh pr view <PR番号> --json state でPRの状態を確認
-3. PR がマージ済み（state: MERGED）の場合:
+1. gh pr view <PR番号> --json state でPRの状態を確認
+2. PR がマージ済み（state: MERGED）の場合:
    - 新しい PR を作成する通常フローに切り替え
-4. PR がオープン（state: OPEN）の場合:
+3. PR がオープン（state: OPEN）の場合:
    - その PR のブランチを worktree にチェックアウト
    - 修正を行う
    - コミット & プッシュ（同じ PR に反映される）
    - create_pr は呼ばない（既存の PR を更新するため）
    - update_progress で完了を報告
-5. PR がクローズ（state: CLOSED）の場合:
+4. PR がクローズ（state: CLOSED）の場合:
    - gh pr reopen で再オープンを試みる
    - オープンできたら修正を続行
 ```
