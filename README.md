@@ -15,6 +15,58 @@ tmux new -s a12n
 aio
 ```
 
+## Commands
+
+aiorchestration provides several subcommands to manage your agent sessions:
+
+### `aio` or `aio start`
+Start a new orchestration session. Creates a new tmux window with planner and orchestrator agents.
+
+```bash
+aio          # Start new session
+aio start    # Same as above
+```
+
+### `aio stop [uid]`
+Stop one or all orchestration sessions.
+
+```bash
+aio stop           # Stop all sessions
+aio stop wm3gbt    # Stop specific session by UID
+```
+
+### `aio status`
+Show all active orchestration sessions and their status.
+
+```bash
+aio status
+```
+
+Example output:
+```
+Active aiorchestration sessions:
+  - Session: wm3gbt
+    Window: @12
+    Panes: Orche, Worker-abc123
+
+Database: /path/to/.aio/aiorchestration.db (exists)
+```
+
+### `aio clean`
+Clean up data files (.aio directory). Requires all sessions to be stopped first.
+
+```bash
+aio stop    # Stop all sessions first
+aio clean   # Then clean data
+```
+
+### `aio help`
+Show help message with all available commands.
+
+```bash
+aio help
+```
+
 ## How It Works
 
 ```
