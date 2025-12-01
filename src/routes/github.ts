@@ -2,14 +2,16 @@ import { Request, Response, Router } from "express";
 import { Octokit } from "@octokit/rest";
 import { SlackService } from "../services/slack.js";
 import { ClaudeService } from "../services/claude.js";
+import { ThreadStateService } from "../services/thread-state.js";
 import { getAssessment } from "../data/assessment.js";
 
 export function createGitHubRouter(params: {
   octokit: Octokit;
   slackService: SlackService;
   claudeService: ClaudeService;
+  threadStateService?: ThreadStateService;
 }): Router {
-  const { octokit, slackService, claudeService } = params;
+  const { octokit, slackService, claudeService, threadStateService } = params;
   const router = Router();
 
   /**
@@ -46,6 +48,7 @@ export function createGitHubRouter(params: {
         octokit,
         slackService,
         claudeService,
+        threadStateService,
         issue,
         repository,
       }).catch((error) => {
@@ -70,10 +73,18 @@ async function handleIssueOpened(params: {
   octokit: Octokit;
   slackService: SlackService;
   claudeService: ClaudeService;
+  threadStateService?: ThreadStateService;
   issue: any;
   repository: any;
 }): Promise<void> {
-  const { octokit, slackService, claudeService, issue, repository } = params;
+  const {
+    octokit,
+    slackService,
+    claudeService,
+    threadStateService,
+    issue,
+    repository,
+  } = params;
 
   const issueUrl = issue.html_url;
   const issueTitle = issue.title;
@@ -102,12 +113,27 @@ async function handleIssueOpened(params: {
 
   // 4. Slack に投稿
   console.log("Posting to Slack...");
-  await slackService.postIssueDraft({
+  const slackMessage = await slackService.postIssueDraft({
     issueUrl,
     issueTitle,
     issueBody,
     draftAnswer,
   });
+
+  // 5. スレッド状態を保存（Phase 3）
+  if (threadStateService && slackMessage.ts) {
+    threadStateService.saveThreadState(slackMessage.ts, {
+      issueNumber: issue.number,
+      repoOwner: repository.owner.login,
+      repoName: repository.name,
+      issueUrl,
+      issueTitle,
+      originalQuestion: issueBody,
+      conversationHistory: [],
+      lastDraftAnswer: draftAnswer,
+    });
+    console.log(`Thread state saved for ts: ${slackMessage.ts}`);
+  }
 
   console.log(`Successfully processed issue: ${issueTitle}`);
 }

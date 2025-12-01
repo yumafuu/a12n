@@ -1,12 +1,14 @@
 import { Request, Response, Router } from "express";
 import { verifySlackSignature } from "../utils/slack-verify.js";
 import { Octokit } from "@octokit/rest";
+import { SlackMessageHandler } from "../handlers/slack-message.js";
 
 export function createSlackRouter(params: {
   slackSigningSecret: string;
   octokit: Octokit;
+  slackMessageHandler?: SlackMessageHandler;
 }): Router {
-  const { slackSigningSecret, octokit } = params;
+  const { slackSigningSecret, octokit, slackMessageHandler } = params;
   const router = Router();
 
   /**
@@ -42,6 +44,22 @@ export function createSlackRouter(params: {
       // URL verification イベント（Slack アプリ設定時）
       if (payload.type === "url_verification") {
         return res.json({ challenge: payload.challenge });
+      }
+
+      // Event API のイベント処理
+      if (payload.type === "event_callback") {
+        const event = payload.event;
+
+        // message イベント（スレッド返信など）
+        if (event.type === "message" && slackMessageHandler) {
+          // バックグラウンドで処理
+          slackMessageHandler.handleMessage(event).catch((error) => {
+            console.error("Error handling message event:", error);
+          });
+
+          // 即座にレスポンスを返す（3秒以内に返す必要がある）
+          return res.status(200).json({ ok: true });
+        }
       }
 
       // インタラクティブメッセージの処理

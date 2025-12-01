@@ -107,4 +107,31 @@ ${codeContext}
 
 上記の情報に基づいて、Issue 作成者に対する回答ドラフトを Markdown 形式で作成してください。`;
   }
+
+  /**
+   * 会話履歴を使って応答を生成
+   */
+  async generateWithHistory(params: {
+    systemPrompt: string;
+    messages: Array<{ role: string; content: string }>;
+  }): Promise<string> {
+    const { systemPrompt, messages } = params;
+
+    const response = await this.client.messages.create({
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 2000,
+      system: systemPrompt,
+      messages: messages.map((msg) => ({
+        role: msg.role as "user" | "assistant",
+        content: msg.content,
+      })),
+    });
+
+    const content = response.content[0];
+    if (content.type !== "text") {
+      throw new Error("Unexpected response type from Claude API");
+    }
+
+    return content.text;
+  }
 }

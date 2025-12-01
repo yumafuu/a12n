@@ -3,6 +3,8 @@ import express from "express";
 import { Octokit } from "@octokit/rest";
 import { SlackService } from "./services/slack.js";
 import { ClaudeService } from "./services/claude.js";
+import { ThreadStateService } from "./services/thread-state.js";
+import { SlackMessageHandler } from "./handlers/slack-message.js";
 import { createGitHubRouter } from "./routes/github.js";
 import { createSlackRouter } from "./routes/slack.js";
 
@@ -15,6 +17,7 @@ function validateEnv(): {
   slackBotToken: string;
   slackSigningSecret: string;
   slackChannelId: string;
+  slackBotUserId: string;
   claudeApiKey: string;
 } {
   const port = parseInt(process.env.PORT || "3000", 10);
@@ -22,6 +25,7 @@ function validateEnv(): {
   const slackBotToken = process.env.SLACK_BOT_TOKEN;
   const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
   const slackChannelId = process.env.SLACK_CHANNEL_ID;
+  const slackBotUserId = process.env.SLACK_BOT_USER_ID;
   const claudeApiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!githubToken) {
@@ -36,6 +40,9 @@ function validateEnv(): {
   if (!slackChannelId) {
     throw new Error("SLACK_CHANNEL_ID is required");
   }
+  if (!slackBotUserId) {
+    throw new Error("SLACK_BOT_USER_ID is required");
+  }
   if (!claudeApiKey) {
     throw new Error("ANTHROPIC_API_KEY is required");
   }
@@ -46,6 +53,7 @@ function validateEnv(): {
     slackBotToken,
     slackSigningSecret,
     slackChannelId,
+    slackBotUserId,
     claudeApiKey,
   };
 }
@@ -60,6 +68,15 @@ async function main() {
   const octokit = new Octokit({ auth: env.githubToken });
   const slackService = new SlackService(env.slackBotToken, env.slackChannelId);
   const claudeService = new ClaudeService(env.claudeApiKey);
+  const threadStateService = new ThreadStateService();
+
+  // Slack メッセージハンドラー（Phase 3）
+  const slackMessageHandler = new SlackMessageHandler(
+    slackService,
+    claudeService,
+    threadStateService,
+    env.slackBotUserId
+  );
 
   // Express アプリケーション
   const app = express();
@@ -77,6 +94,7 @@ async function main() {
     octokit,
     slackService,
     claudeService,
+    threadStateService, // Phase 3: スレッド状態管理
   });
   app.use(githubRouter);
 
@@ -84,6 +102,7 @@ async function main() {
   const slackRouter = createSlackRouter({
     slackSigningSecret: env.slackSigningSecret,
     octokit,
+    slackMessageHandler, // Phase 3: スレッドコメント処理
   });
   app.use(slackRouter);
 

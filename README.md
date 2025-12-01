@@ -10,11 +10,17 @@ MCP implementation that runs Claude CLI as autonomous agents. Orchestrator and w
 - tmux-based UI for monitoring multiple workers
 - SQLite-based message passing and task management
 
-### Phase 2: GitHub Issue Auto-Response & Slack Integration (NEW)
+### Phase 2: GitHub Issue Auto-Response & Slack Integration
 - Automatic draft responses for GitHub Issues using Claude AI
 - Slack integration for review and approval workflow
 - Context-aware responses using repository code and KOS assessment data
 - Interactive Slack buttons for approve/edit/reject actions
+
+### Phase 3: Slack Thread-based Answer Refinement (NEW)
+- Reply to Slack threads to refine AI-generated answers
+- Conversation history tracking for iterative improvements
+- Context-aware answer updates based on feedback
+- Automatic posting of refined answers to the same thread
 
 ## Install
 
@@ -51,8 +57,14 @@ bun run src/server.ts
    - Events: Issues (opened)
 
 4. Configure Slack app:
+   - Event Subscriptions URL: `https://your-domain/webhook/slack`
+   - Subscribe to bot events: `message.channels`
    - Interactive Components URL: `https://your-domain/webhook/slack`
    - Bot Token Scopes: `chat:write`, `chat:write.public`
+
+5. Get your Slack Bot User ID:
+   - Call Slack API: `https://slack.com/api/auth.test` with your bot token
+   - Set `SLACK_BOT_USER_ID` in `.env` to the returned `user_id`
 
 ## How It Works
 
@@ -80,6 +92,8 @@ Fetch repository context (README, spec, etc.)
 Generate draft answer with Claude
   ↓
 Post to Slack with approval buttons
+  ↓
+[Phase 3] User comments in thread → Claude refines answer
   ↓
 User approves → Post comment to GitHub
 ```
