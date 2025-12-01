@@ -121,42 +121,8 @@ function zodToJsonSchema(zodSchema: unknown): Record<string, unknown> {
   };
 }
 
-// Store watcher process for cleanup
-let watcherProc: ReturnType<typeof Bun.spawn> | null = null;
-
-function startWatcher(): void {
-  const projectRoot = process.env.PROJECT_ROOT || process.cwd();
-  const watcherPath = `${projectRoot}/src/watcher.ts`;
-
-  console.error(`Starting watcher: ${watcherPath}`);
-  console.error(`PLANNER_PANE: ${process.env.PLANNER_PANE || "(not set)"}`);
-  console.error(`ORCHE_PANE: ${process.env.ORCHE_PANE || "(not set)"}`);
-
-  watcherProc = Bun.spawn(["bun", "run", watcherPath], {
-    cwd: projectRoot,
-    env: {
-      ...process.env,
-      PROJECT_ROOT: projectRoot,
-      GENERATED_DIR: process.env.GENERATED_DIR || `${projectRoot}/.generated`,
-      DB_PATH: process.env.DB_PATH || `${projectRoot}/aiorchestration.db`,
-      PLANNER_PANE: process.env.PLANNER_PANE || "",
-      ORCHE_PANE: process.env.ORCHE_PANE || "",
-      SESSION_UID: process.env.SESSION_UID || "",
-    },
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-
-  console.error(`Watcher started (PID: ${watcherProc.pid})`);
-}
-
-function stopWatcher(): void {
-  if (watcherProc) {
-    console.error("Stopping watcher...");
-    watcherProc.kill();
-    watcherProc = null;
-  }
-}
+// Note: Watcher functionality has been integrated into orche-process.ts
+// No separate watcher process is needed anymore
 
 async function main() {
   const { role, workerId } = parseArgs();
@@ -166,10 +132,8 @@ async function main() {
     console.error(`Worker ID: ${workerId}`);
   }
 
-  // Start watcher if orche role
+  // Start socket server if orche role
   if (role === "orche") {
-    startWatcher();
-
     // Start socket server for orche
     const socketServer = getSocketServer();
     await socketServer.start();
@@ -180,15 +144,12 @@ async function main() {
 
     // Cleanup on exit
     process.on("exit", () => {
-      stopWatcher();
       cleanupSocket();
     });
     process.on("SIGINT", () => {
-      stopWatcher();
       cleanupSocket().then(() => process.exit(0));
     });
     process.on("SIGTERM", () => {
-      stopWatcher();
       cleanupSocket().then(() => process.exit(0));
     });
   } else {
