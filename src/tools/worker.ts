@@ -31,6 +31,16 @@ function getBranchName(): string {
   return process.env.BRANCH_NAME || "";
 }
 
+// Get task description from environment
+function getTaskDescription(): string {
+  return process.env.TASK_DESCRIPTION || "";
+}
+
+// Get task context from environment
+function getTaskContext(): string {
+  return process.env.TASK_CONTEXT || "";
+}
+
 // Tool definitions for worker
 export const workerTools = [
   {

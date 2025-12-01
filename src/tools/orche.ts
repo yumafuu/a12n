@@ -236,6 +236,8 @@ export const orcheHandlers = {
             TASK_ID: taskId,
             WORKTREE_PATH: worktreePath,
             BRANCH_NAME: branchName,
+            TASK_DESCRIPTION: params.description,
+            TASK_CONTEXT: params.context || "",
           },
         },
       },
@@ -244,7 +246,7 @@ export const orcheHandlers = {
 
     // Create new tmux window - worker runs in worktree directory with auto-approve
     const workerPromptPath = `${projectRoot}/prompts/worker-prompt.md`;
-    const command = `cd ${worktreePath} && claude --model sonnet --dangerously-skip-permissions --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。まず check_messages を呼んでタスク内容を確認してください。"`;
+    const command = `cd ${worktreePath} && claude --model sonnet --dangerously-skip-permissions --mcp-config ${workerConfigPath} --system-prompt "$(cat ${workerPromptPath})" "タスクを開始してください。タスク内容は TASK_DESCRIPTION 環境変数に設定されています: ${params.description}"`;
 
     const windowId = await tmux.newWindow(command);
 
@@ -256,15 +258,6 @@ export const orcheHandlers = {
     await db.registerWorker(workerId, windowId);
     await db.updateWorkerStatus(workerId, "running", taskId);
     await db.updateTaskStatus(taskId, TaskStatus.IN_PROGRESS, workerId);
-
-    // Send initial task assignment message
-    await db.sendMessage(workerId, "orche", MessageType.TASK_ASSIGN, {
-      task_id: taskId,
-      description: params.description,
-      context: params.context,
-      worktree_path: worktreePath,
-      branch_name: branchName,
-    });
 
     return JSON.stringify({
       success: true,
