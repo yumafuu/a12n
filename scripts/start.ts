@@ -24,8 +24,8 @@ const WINDOW_NAME = `agents-${UID}`;
 const PROJECT_ROOT = import.meta.dir.replace("/scripts", "");
 const TARGET_REPO = process.cwd(); // Directory where aio was launched
 
-// Directory for generated config files
-const GENERATED_DIR = join(PROJECT_ROOT, ".generated");
+// Directory for generated config files (moved to .aio for multi-project support)
+const GENERATED_DIR = join(TARGET_REPO, ".aio", ".generated");
 
 // Generate MCP config for a role
 function generateMcpConfig(role: string, extraEnv: Record<string, string> = {}): object {
