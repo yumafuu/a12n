@@ -137,6 +137,7 @@ async function getActiveWorkers(): Promise<Array<{ id: string; pane_id: string }
 
 // Environment variables for tmux integration
 const ORCHE_PANE = process.env.ORCHE_PANE || "";
+const PLANNER_PANE = process.env.PLANNER_PANE || "";
 const PROJECT_ROOT = process.env.PROJECT_ROOT || "";
 const GENERATED_DIR = process.env.GENERATED_DIR || "";
 const SESSION_UID = process.env.SESSION_UID || "";
@@ -533,6 +534,63 @@ async function sendNotification(title: string, message: string): Promise<void> {
   }
 }
 
+// Check if a pane exists
+async function checkPaneExists(paneId: string): Promise<boolean> {
+  if (!paneId) {
+    return false;
+  }
+
+  try {
+    const proc = Bun.spawn(["tmux", "display-message", "-t", paneId, "-p", "#{pane_id}"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const exitCode = await proc.exited;
+    return exitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
+// Terminate all agents (orche, reviewer, workers) and exit
+async function terminateAllAgents(): Promise<void> {
+  log("Planner has exited. Terminating all agents...");
+
+  try {
+    // Kill all active workers
+    const workers = await getActiveWorkers();
+    for (const worker of workers) {
+      log(`Terminating worker ${worker.id}...`);
+      try {
+        await orcheHandlers.kill_worker({ worker_id: worker.id });
+      } catch (error) {
+        console.error(`[${formatTimestamp()}] Failed to kill worker ${worker.id}:`, error);
+      }
+    }
+
+    // Kill reviewer pane if it exists
+    if (reviewerPaneId) {
+      log("Terminating reviewer...");
+      try {
+        const proc = Bun.spawn(["tmux", "kill-pane", "-t", reviewerPaneId], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        await proc.exited;
+      } catch (error) {
+        console.error(`[${formatTimestamp()}] Failed to kill reviewer:`, error);
+      }
+    }
+
+    log("All agents terminated. Exiting orche...");
+  } catch (error) {
+    console.error(`[${formatTimestamp()}] Error during termination:`, error);
+  }
+
+  // Exit orche process
+  process.exit(0);
+}
+
 // Check and notify workers and reviewer
 async function checkAndNotifyAgents(): Promise<void> {
   try {
@@ -583,6 +641,9 @@ async function main(): Promise<void> {
   log(`Database: ${process.env.DB_PATH || 'aiorchestration.db'}`);
   log(`Target repo: ${process.env.TARGET_REPO_ROOT || process.cwd()}`);
   log(`Poll interval: ${POLL_INTERVAL_MS}ms`);
+  if (PLANNER_PANE) {
+    log(`Monitoring planner pane: ${PLANNER_PANE}`);
+  }
   log("");
 
   // Initialize watcher_state table for persistent seq tracking
@@ -595,6 +656,17 @@ async function main(): Promise<void> {
 
   // Poll for events
   while (true) {
+    // Check if planner pane still exists
+    if (PLANNER_PANE) {
+      const plannerExists = await checkPaneExists(PLANNER_PANE);
+      if (!plannerExists) {
+        // Planner has exited, terminate all agents
+        await terminateAllAgents();
+        // terminateAllAgents calls process.exit, but just in case:
+        return;
+      }
+    }
+
     await processEvents();
     await checkAndNotifyAgents();
     await Bun.sleep(POLL_INTERVAL_MS);
