@@ -5,22 +5,6 @@ import * as tmux from "../lib/tmux.js";
 import { setWindowStyle, setWindowName } from "../lib/tmux.js";
 import { MessageType, TaskStatus } from "../types.js";
 import type { Message } from "../types.js";
-import { getSocketServer } from "../lib/socket.js";
-
-// Queue for messages received via socket
-const socketMessageQueue: Message[] = [];
-
-// Setup socket message handler for orche
-export function setupSocketMessageHandler(): void {
-  const socketServer = getSocketServer();
-  socketServer.onMessage((message) => {
-    // Queue messages for orche
-    if (message.to === "orche") {
-      socketMessageQueue.push(message);
-    }
-  });
-}
-
 // Tool definitions for orchestrator
 export const orcheTools = [
   {
@@ -416,22 +400,9 @@ export const orcheHandlers = {
   },
 
   async check_messages(): Promise<string> {
-    // First, check socket queue for real-time messages
-    const socketMessages = socketMessageQueue.splice(0);
-
-    // Also check database for any missed messages (fallback)
+    // Check database for messages
     // Use "orche" as reader_id - messages are marked as read automatically
-    const { messages: dbMessages } = await db.checkMessages("orche", "orche");
-
-    // Merge and dedupe messages
-    const messageMap = new Map<string, Message>();
-    for (const msg of dbMessages) {
-      messageMap.set(msg.id, msg);
-    }
-    for (const msg of socketMessages) {
-      messageMap.set(msg.id, msg);
-    }
-    const allMessages = Array.from(messageMap.values());
+    const { messages: allMessages } = await db.checkMessages("orche", "orche");
 
     // Process messages
     for (const msg of allMessages) {

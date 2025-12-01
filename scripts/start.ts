@@ -176,14 +176,14 @@ async function main() {
   await runCommand(["tmux", "send-keys", "-t", orchePane, orcheCmd]);
   await runCommand(["tmux", "send-keys", "-t", orchePane, "Enter"]);
 
-  // Reviewer is not started on startup (on-demand only, launched by watcher)
+  // Reviewer is not started on startup (on-demand only, launched by orche-process)
 
   console.log("");
   console.log("Setup complete!");
   console.log(`  Planner pane (${plannerPane}): Running in current pane`);
   console.log(`  Orche window '${WINDOW_NAME}':`);
   console.log(`    - Pane (${orchePane}): Orche (workers spawn here)`);
-  console.log(`    - Reviewer will be spawned on-demand by watcher`);
+  console.log(`    - Reviewer will be spawned on-demand by orche`);
   console.log("");
   console.log("Switch to orche window:");
   console.log(`  tmux select-window -t ${WINDOW_NAME}`);

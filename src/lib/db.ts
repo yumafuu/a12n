@@ -12,7 +12,6 @@ import type {
   Worker,
   WorkerStatus,
 } from "../types.js";
-import { notifyViaSocket } from "./socket.js";
 
 // Heartbeat timeout in milliseconds
 const HEARTBEAT_TIMEOUT_MS = 30000;
@@ -169,14 +168,6 @@ export async function sendMessage(
     `INSERT INTO messages (id, seq, timestamp, from_id, to_id, type, payload) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [message.id, seq, message.timestamp, message.from, message.to, message.type, JSON.stringify(message.payload)]
   );
-
-  // Notify via socket for real-time delivery
-  try {
-    notifyViaSocket(message);
-  } catch (err) {
-    // Socket notification is best-effort, don't fail if it errors
-    console.error("Socket notification failed:", err);
-  }
 
   return message.id;
 }
@@ -465,25 +456,6 @@ export async function removeWorker(workerId: string): Promise<void> {
   database.run(`DELETE FROM workers WHERE id = ?`, [workerId]);
   // Also clean up messages to this worker
   database.run(`DELETE FROM messages WHERE to_id = ?`, [workerId]);
-}
-
-// Watcher state operations
-export function getWatcherSeq(recipient: string): number {
-  const database = getDb();
-  const row = database.query(
-    `SELECT last_processed_seq FROM watcher_state WHERE recipient = ?`
-  ).get(recipient) as { last_processed_seq: number } | null;
-
-  return row?.last_processed_seq ?? 0;
-}
-
-export function saveWatcherSeq(recipient: string, seq: number): void {
-  const database = getDb();
-  database.run(
-    `INSERT INTO watcher_state (recipient, last_processed_seq) VALUES (?, ?)
-     ON CONFLICT(recipient) DO UPDATE SET last_processed_seq = excluded.last_processed_seq`,
-    [recipient, seq]
-  );
 }
 
 // Message queue operations
