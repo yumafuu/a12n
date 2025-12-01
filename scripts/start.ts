@@ -35,6 +35,7 @@ function generateMcpConfig(role: string, extraEnv: Record<string, string> = {}):
         args: ["run", join(PROJECT_ROOT, "src/mcp-server.ts"), "--role", role],
         env: {
           PROJECT_ROOT,
+          DB_PATH: join(PROJECT_ROOT, "aiorchestration.db"),
           ...extraEnv,
         },
       },
