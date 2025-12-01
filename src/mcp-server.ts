@@ -141,6 +141,7 @@ function startWatcher(): void {
       DB_PATH: process.env.DB_PATH || `${projectRoot}/aiorchestration.db`,
       PLANNER_PANE: process.env.PLANNER_PANE || "",
       ORCHE_PANE: process.env.ORCHE_PANE || "",
+      SESSION_UID: process.env.SESSION_UID || "",
     },
     stdout: "inherit",
     stderr: "inherit",

@@ -10,17 +10,17 @@ import { join } from "path";
 import {
   setPaneBorderColor,
   setPaneTitle,
+  setWindowName,
   ROLE_COLORS,
 } from "../src/lib/tmux.js";
 
-// Generate unique window name: {dirname}-{4char uid}
-function generateWindowName(): string {
-  const uid = Math.random().toString(36).substring(2, 6);
-  const dirname = process.cwd().split("/").pop() || "aio";
-  return `${dirname}-${uid}`;
+// Generate unique identifier for this session
+function generateUid(): string {
+  return Math.random().toString(36).substring(2, 8);
 }
 
-const WINDOW_NAME = generateWindowName();
+const UID = generateUid();
+const WINDOW_NAME = `agents-${UID}`;
 const PROJECT_ROOT = import.meta.dir.replace("/scripts", "");
 const TARGET_REPO = process.cwd(); // Directory where aio was launched
 
@@ -110,6 +110,14 @@ async function main() {
     "#{pane_id}",
   ]);
 
+  // Get current window ID (for planner window naming)
+  const plannerWindow = await runCommand([
+    "tmux",
+    "display-message",
+    "-p",
+    "#{window_id}",
+  ]);
+
   // Create new window for orche, reviewer, and workers
   console.log(`Creating agents window: ${WINDOW_NAME}`);
   await runCommand(["tmux", "new-window", "-d", "-n", WINDOW_NAME]);
@@ -124,19 +132,31 @@ async function main() {
     "#{pane_id}",
   ]);
 
+  // Get orche window ID
+  const orcheWindow = await runCommand([
+    "tmux",
+    "display-message",
+    "-t",
+    WINDOW_NAME,
+    "-p",
+    "#{window_id}",
+  ]);
+
   // Reviewer pane is not created on startup (on-demand only)
   const reviewerPane = "";
 
   // Apply colors to orche pane
   await setPaneBorderColor(orchePane, "orche");
   await setPaneTitle(orchePane, "Orche");
+  await setWindowName(orcheWindow, `Orche:${UID}`);
 
   // Apply colors to planner pane (current pane)
   await setPaneBorderColor(plannerPane, "planner");
   await setPaneTitle(plannerPane, "Planner");
+  await setWindowName(plannerWindow, `Planner:${UID}`);
 
   // Start orche in pane (with pane IDs for watcher)
-  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} PROJECT_ROOT=${PROJECT_ROOT} GENERATED_DIR=${GENERATED_DIR} claude --model sonnet --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
+  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} SESSION_UID=${UID} PROJECT_ROOT=${PROJECT_ROOT} GENERATED_DIR=${GENERATED_DIR} claude --model sonnet --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
   await runCommand(["tmux", "send-keys", "-t", orchePane, orcheCmd]);
   await runCommand(["tmux", "send-keys", "-t", orchePane, "Enter"]);
 
