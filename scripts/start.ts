@@ -102,28 +102,12 @@ async function main() {
     process.exit(1);
   }
 
-  // Get current pane ID (will be used for planner)
-  const plannerPane = await runCommand([
-    "tmux",
-    "display-message",
-    "-p",
-    "#{pane_id}",
-  ]);
-
-  // Get current window ID (for planner window naming)
-  const plannerWindow = await runCommand([
-    "tmux",
-    "display-message",
-    "-p",
-    "#{window_id}",
-  ]);
-
-  // Create new window for orche, reviewer, and workers
+  // Create new window for planner, orche, reviewer, and workers
   console.log(`Creating agents window: ${WINDOW_NAME}`);
   await runCommand(["tmux", "new-window", "-d", "-n", WINDOW_NAME]);
 
-  // Get orche pane (initial pane in new window)
-  const orchePane = await runCommand([
+  // Get planner pane (initial pane in new window)
+  const plannerPane = await runCommand([
     "tmux",
     "display-message",
     "-t",
@@ -132,8 +116,20 @@ async function main() {
     "#{pane_id}",
   ]);
 
-  // Get orche window ID
-  const orcheWindow = await runCommand([
+  // Split window to create orche pane on the right of planner
+  const orchePane = await runCommand([
+    "tmux",
+    "split-window",
+    "-t",
+    plannerPane,
+    "-h",
+    "-P",
+    "-F",
+    "#{pane_id}",
+  ]);
+
+  // Get window ID for naming
+  const agentsWindow = await runCommand([
     "tmux",
     "display-message",
     "-t",
@@ -145,15 +141,22 @@ async function main() {
   // Reviewer pane is not created on startup (on-demand only)
   const reviewerPane = "";
 
+  // Apply colors to planner pane
+  await setPaneBorderColor(plannerPane, "planner");
+  await setPaneTitle(plannerPane, "Planner");
+
   // Apply colors to orche pane
   await setPaneBorderColor(orchePane, "orche");
   await setPaneTitle(orchePane, "Orche");
-  await setWindowName(orcheWindow, `Orche:${UID}`);
 
-  // Apply colors to planner pane (current pane)
-  await setPaneBorderColor(plannerPane, "planner");
-  await setPaneTitle(plannerPane, "Planner");
-  await setWindowName(plannerWindow, `Planner:${UID}`);
+  // Set window name with UID (planner and orche share this window)
+  await setWindowName(agentsWindow, `Planner+Orche:${UID}`);
+
+  // Start planner in planner pane
+  const plannerPromptPath = join(PROJECT_ROOT, "prompts/planner-prompt.md");
+  const plannerCmd = `claude --model opus --mcp-config ${GENERATED_DIR}/planner.json --system-prompt "$(cat ${plannerPromptPath})"`;
+  await runCommand(["tmux", "send-keys", "-t", plannerPane, plannerCmd]);
+  await runCommand(["tmux", "send-keys", "-t", plannerPane, "Enter"]);
 
   // Start orche in pane (with pane IDs for watcher)
   const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} SESSION_UID=${UID} PROJECT_ROOT=${PROJECT_ROOT} GENERATED_DIR=${GENERATED_DIR} claude --model sonnet --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
@@ -164,29 +167,14 @@ async function main() {
 
   console.log("");
   console.log("Setup complete!");
-  console.log(`  Current pane (${plannerPane}): Planner (human interaction)`);
   console.log(`  Window '${WINDOW_NAME}':`);
+  console.log(`    - Pane (${plannerPane}): Planner (human interaction)`);
   console.log(`    - Pane (${orchePane}): Orche (workers spawn here)`);
   console.log(`    - Reviewer will be spawned on-demand by watcher`);
   console.log("");
-  console.log("Starting planner...");
+  console.log("Switch to window to see planner:");
+  console.log(`  tmux select-window -t ${WINDOW_NAME}`);
   console.log("");
-
-  // Start planner in current pane (human interaction)
-  // Read prompt file content and pass directly to avoid shell escaping issues
-  const plannerPromptPath = join(PROJECT_ROOT, "prompts/planner-prompt.md");
-
-  const proc = Bun.spawn([
-    "claude",
-    "--model", "opus",
-    "--mcp-config", `${GENERATED_DIR}/planner.json`,
-    "--system-prompt", await Bun.file(plannerPromptPath).text(),
-  ], {
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  await proc.exited;
 }
 
 main().catch(console.error);
