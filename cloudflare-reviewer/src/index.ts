@@ -3,7 +3,7 @@ import { verifyWebhookSignature } from './webhook-verify';
 import { reviewPullRequest, postReviewComment } from './reviewer';
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // Health check endpoint
@@ -13,7 +13,7 @@ export default {
 
     // GitHub Webhook endpoint
     if (url.pathname === '/webhook/github' && request.method === 'POST') {
-      return handleGitHubWebhook(request, env);
+      return handleGitHubWebhook(request, env, ctx);
     }
 
     return new Response('Not Found', { status: 404 });
@@ -23,7 +23,7 @@ export default {
 /**
  * GitHub Webhook を処理
  */
-async function handleGitHubWebhook(request: Request, env: Env): Promise<Response> {
+async function handleGitHubWebhook(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   try {
     // Verify webhook signature
     const signature = request.headers.get('X-Hub-Signature-256');
@@ -60,8 +60,8 @@ async function handleGitHubWebhook(request: Request, env: Env): Promise<Response
 
         console.log(`Triggering review for PR #${prNumber} in ${owner}/${repo}`);
 
-        // Run review in background (don't await to return quickly)
-        runReview(env, owner, repo, prNumber);
+        // Run review in background using ctx.waitUntil to ensure completion
+        ctx.waitUntil(runReview(env, owner, repo, prNumber));
 
         return new Response('Review triggered', { status: 200 });
       }
