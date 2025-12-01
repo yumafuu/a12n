@@ -1,6 +1,6 @@
 import { z } from "zod";
 import * as db from "../lib/db.js";
-import { EventType, TaskStatus } from "../types.js";
+import { EventType, TaskStatus, MessageType } from "../types.js";
 import type { ReviewRequestedEventPayload, ReviewDeniedEventPayload } from "../types.js";
 
 // Get worker ID from environment
