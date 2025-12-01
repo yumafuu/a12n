@@ -54,6 +54,7 @@ function setupGeneratedConfigs(): void {
   mkdirSync(join(TARGET_REPO, ".aio"), { recursive: true });
 
   // Generate config files for each role
+  // Note: orche config is generated for compatibility but not used (orche runs as bun process)
   const configs = {
     planner: generateMcpConfig("planner"),
     orche: generateMcpConfig("orche", {
@@ -169,8 +170,9 @@ async function main() {
   await runCommand(["tmux", "send-keys", "-t", plannerPane, plannerCmd]);
   await runCommand(["tmux", "send-keys", "-t", plannerPane, "Enter"]);
 
-  // Start orche in pane (with pane IDs for watcher)
-  const orcheCmd = `PLANNER_PANE=${plannerPane} ORCHE_PANE=${orchePane} SESSION_UID=${UID} PROJECT_ROOT=${PROJECT_ROOT} GENERATED_DIR=${GENERATED_DIR} claude --model sonnet --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/orche.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/orche-prompt.md)" "起動しました。check_messages を呼んで Planner からのタスクを確認してください。"`;
+  // Start orche as bun process (instead of claude CLI)
+  const DB_PATH = join(TARGET_REPO, ".aio", "aiorchestration.db");
+  const orcheCmd = `DB_PATH=${DB_PATH} TARGET_REPO_ROOT=${TARGET_REPO} PROJECT_ROOT=${PROJECT_ROOT} SESSION_UID=${UID} bun run ${PROJECT_ROOT}/src/orche-process.ts`;
   await runCommand(["tmux", "send-keys", "-t", orchePane, orcheCmd]);
   await runCommand(["tmux", "send-keys", "-t", orchePane, "Enter"]);
 
