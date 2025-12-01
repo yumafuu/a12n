@@ -346,17 +346,12 @@ async function main(): Promise<void> {
   // Main loop
   while (true) {
     try {
-      // Check messages for orche
+      // Note: orche runs as a bun process with its own polling loop, so we don't notify it
+      // Just track messages for logging purposes
       const orcheMessages = await checkForNewMessages("orche");
       if (orcheMessages.count > 0) {
         console.log(
-          `[watcher] Found ${orcheMessages.count} new message(s) for orche: ${orcheMessages.types.join(", ")}`
-        );
-        await notify(
-          panes.orche,
-          "orche",
-          orcheMessages.types,
-          orcheMessages.from
+          `[watcher] Found ${orcheMessages.count} new message(s) for orche: ${orcheMessages.types.join(", ")} (orche handles its own polling)`
         );
       }
 
