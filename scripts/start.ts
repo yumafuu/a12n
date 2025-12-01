@@ -173,7 +173,7 @@ async function startSession() {
 
   // Start orche as bun process (instead of claude CLI)
   const DB_PATH = join(TARGET_REPO, ".aio", "aiorchestration.db");
-  const orcheCmd = `DB_PATH=${DB_PATH} TARGET_REPO_ROOT=${TARGET_REPO} PROJECT_ROOT=${PROJECT_ROOT} SESSION_UID=${UID} bun run ${PROJECT_ROOT}/src/orche-process.ts`;
+  const orcheCmd = `DB_PATH=${DB_PATH} TARGET_REPO_ROOT=${TARGET_REPO} PROJECT_ROOT=${PROJECT_ROOT} GENERATED_DIR=${GENERATED_DIR} SESSION_UID=${UID} ORCHE_PANE=${orchePane} bun run ${PROJECT_ROOT}/src/orche-process.ts`;
   await runCommand(["tmux", "send-keys", "-t", orchePane, orcheCmd]);
   await runCommand(["tmux", "send-keys", "-t", orchePane, "Enter"]);
 
