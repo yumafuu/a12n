@@ -79,7 +79,7 @@ async function spawnReviewer(): Promise<string> {
 
     console.log("[watcher] Spawning reviewer pane...");
 
-    // Split window from orche pane
+    // Split window from orche pane (creates pane on the right)
     const splitProc = Bun.spawn([
       "tmux",
       "split-window",
@@ -103,6 +103,23 @@ async function spawnReviewer(): Promise<string> {
     }
 
     console.log(`[watcher] Created reviewer pane: ${newPaneId}`);
+
+    // Swap panes to move reviewer to the left of orche
+    // This makes the order: planner | reviewer | orche
+    const swapProc = Bun.spawn([
+      "tmux",
+      "swap-pane",
+      "-s",
+      newPaneId,
+      "-t",
+      ORCHE_PANE,
+    ], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    await swapProc.exited;
+
+    console.log(`[watcher] Swapped reviewer pane to the left of orche`);
 
     // Apply colors to reviewer pane
     await setPaneBorderColor(newPaneId, "reviewer");
