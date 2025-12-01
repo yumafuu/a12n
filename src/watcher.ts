@@ -7,6 +7,7 @@ const DB_PATH = process.env.DB_PATH || "aiorchestration.db";
 const ORCHE_PANE = process.env.ORCHE_PANE || "";
 const PROJECT_ROOT = process.env.PROJECT_ROOT || "";
 const GENERATED_DIR = process.env.GENERATED_DIR || "";
+const SESSION_UID = process.env.SESSION_UID || "";
 
 // Track last checked sequence for each recipient
 const lastCheckedSeq: Record<string, number> = {};
@@ -75,7 +76,7 @@ async function spawnReviewer(): Promise<string> {
 
   try {
     // Import tmux utilities
-    const { setPaneBorderColor, setPaneTitle } = await import("./lib/tmux.js");
+    const { setPaneBorderColor, setPaneTitle, setWindowName } = await import("./lib/tmux.js");
 
     console.log("[watcher] Spawning reviewer pane...");
 
@@ -121,9 +122,30 @@ async function spawnReviewer(): Promise<string> {
 
     console.log(`[watcher] Swapped reviewer pane to the left of orche`);
 
+    // Get window ID for the reviewer pane
+    const windowProc = Bun.spawn([
+      "tmux",
+      "display-message",
+      "-t",
+      newPaneId,
+      "-p",
+      "#{window_id}",
+    ], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const windowId = (await new Response(windowProc.stdout).text()).trim();
+    await windowProc.exited;
+
     // Apply colors to reviewer pane
     await setPaneBorderColor(newPaneId, "reviewer");
     await setPaneTitle(newPaneId, "Reviewer");
+
+    // Set window name to include Reviewer (this window is shared with planner and orche)
+    if (SESSION_UID) {
+      await setWindowName(windowId, `Planner+Reviewer+Orche:${SESSION_UID}`);
+    }
 
     // Start reviewer in the new pane
     const reviewerCmd = `claude --model opus --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/reviewer-prompt.md)" "レビュー依頼が来ています。check_messages を呼んでレビューしてください。"`;
