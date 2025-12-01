@@ -301,7 +301,7 @@ async function spawnReviewer(): Promise<string> {
     }
 
     // Start reviewer in the new pane
-    const reviewerCmd = `claude --model opus --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/reviewer-prompt.md)" "レビュー依頼が来ています。check_messages を呼んでレビューしてください。"`;
+    const reviewerCmd = `claude --model opus --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/reviewer-prompt.md)" "レビュー依頼が来ています。check_review_requests を呼んでレビューしてください。"`;
 
     const sendProc = Bun.spawn([
       "tmux",
