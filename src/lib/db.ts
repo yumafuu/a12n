@@ -92,11 +92,31 @@ function initSchema(): void {
     )
   `);
 
+  database.run(`
+    CREATE TABLE IF NOT EXISTS message_queue (
+      id TEXT PRIMARY KEY,
+      to_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      priority INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (message_id) REFERENCES messages(id)
+    )
+  `);
+
+  database.run(`
+    CREATE TABLE IF NOT EXISTS agent_status (
+      agent_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'idle',
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
   // Create indexes
   database.run(`CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_id)`);
   database.run(`CREATE INDEX IF NOT EXISTS idx_messages_seq ON messages(seq)`);
   database.run(`CREATE INDEX IF NOT EXISTS idx_workers_heartbeat ON workers(last_heartbeat)`);
   database.run(`CREATE INDEX IF NOT EXISTS idx_message_reads_reader ON message_reads(reader_id)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_message_queue_to_id ON message_queue(to_id)`);
 }
 
 // Auto-increment for message sequence
@@ -444,5 +464,101 @@ export function saveWatcherSeq(recipient: string, seq: number): void {
      ON CONFLICT(recipient) DO UPDATE SET last_processed_seq = excluded.last_processed_seq`,
     [recipient, seq]
   );
+}
+
+// Message queue operations
+export async function enqueueMessage(
+  toId: string,
+  messageId: string
+): Promise<string> {
+  const database = getDb();
+  const queueId = uuidv4();
+  const now = Date.now();
+
+  database.run(
+    `INSERT INTO message_queue (id, to_id, message_id, created_at) VALUES (?, ?, ?, ?)`,
+    [queueId, toId, messageId, now]
+  );
+
+  return queueId;
+}
+
+export async function dequeueMessage(
+  toId: string
+): Promise<{ id: string; messageId: string } | null> {
+  const database = getDb();
+
+  // Get the oldest message in the queue for this recipient
+  const row = database.query(
+    `SELECT id, message_id FROM message_queue WHERE to_id = ? ORDER BY created_at ASC, priority DESC LIMIT 1`
+  ).get(toId) as { id: string; message_id: string } | null;
+
+  if (!row) {
+    return null;
+  }
+
+  // Remove it from the queue
+  database.run(`DELETE FROM message_queue WHERE id = ?`, [row.id]);
+
+  return {
+    id: row.id,
+    messageId: row.message_id,
+  };
+}
+
+export async function peekQueue(
+  toId: string
+): Promise<Array<{ id: string; messageId: string }>> {
+  const database = getDb();
+
+  const rows = database.query(
+    `SELECT id, message_id FROM message_queue WHERE to_id = ? ORDER BY created_at ASC, priority DESC`
+  ).all(toId) as Array<{ id: string; message_id: string }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    messageId: row.message_id,
+  }));
+}
+
+// Agent status operations
+export async function getAgentStatus(
+  agentId: string
+): Promise<"idle" | "busy"> {
+  const database = getDb();
+
+  const row = database.query(
+    `SELECT status FROM agent_status WHERE agent_id = ?`
+  ).get(agentId) as { status: string } | null;
+
+  // Default to idle if not found
+  return (row?.status as "idle" | "busy") || "idle";
+}
+
+export async function setAgentStatus(
+  agentId: string,
+  status: "idle" | "busy"
+): Promise<void> {
+  const database = getDb();
+  const now = Date.now();
+
+  database.run(
+    `INSERT INTO agent_status (agent_id, status, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(agent_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at`,
+    [agentId, status, now]
+  );
+}
+
+export async function setAgentBusyWithTimeout(
+  agentId: string,
+  timeoutMs: number
+): Promise<void> {
+  // Set to busy immediately
+  await setAgentStatus(agentId, "busy");
+
+  // Schedule automatic return to idle after timeout
+  setTimeout(async () => {
+    await setAgentStatus(agentId, "idle");
+  }, timeoutMs);
 }
 
