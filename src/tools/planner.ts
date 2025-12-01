@@ -1,22 +1,8 @@
 import { z } from "zod";
+import { v4 as uuidv4 } from "uuid";
 import * as db from "../lib/db.js";
-import { MessageType } from "../types.js";
-import type { Message } from "../types.js";
-import { getSocketClient } from "../lib/socket.js";
-
-// Queue for messages received via socket
-const socketMessageQueue: Message[] = [];
-
-// Setup socket message handler
-export function setupSocketMessageHandler(): void {
-  const socketClient = getSocketClient("planner", "planner");
-  socketClient.onMessage((message) => {
-    // Queue messages for planner
-    if (message.to === "planner") {
-      socketMessageQueue.push(message);
-    }
-  });
-}
+import { EventType } from "../types.js";
+import type { TaskCreateEventPayload } from "../types.js";
 
 // Tool definitions for planner
 export const plannerTools = [
@@ -48,54 +34,39 @@ export const plannerHandlers = {
     context?: string;
     branch_name?: string;
   }): Promise<string> {
-    // Send task to orche
-    const messageId = await db.sendMessage(
-      "orche",
-      "planner",
-      MessageType.TASK_ASSIGN,
-      {
-        task_id: "", // orche will generate
-        description: params.description,
-        context: params.context,
-        branch_name: params.branch_name,
-      }
+    // Generate task ID and branch name
+    const taskId = uuidv4();
+    const branchName = params.branch_name || `task/${taskId.slice(0, 8)}`;
+
+    // Register task-create event
+    const payload: TaskCreateEventPayload = {
+      task_id: taskId,
+      description: params.description,
+      context: params.context,
+      branch_name: branchName,
+    };
+
+    const eventId = await db.registerEvent(
+      EventType.TASK_CREATE,
+      taskId,
+      payload
     );
 
     return JSON.stringify({
       success: true,
-      message_id: messageId,
-      message: `Task sent to orchestrator: ${params.description}`,
+      event_id: eventId,
+      task_id: taskId,
+      message: `Task created: ${params.description}`,
     });
   },
 
   async check_messages(): Promise<string> {
-    // First, check socket queue for real-time messages
-    const socketMessages = socketMessageQueue.splice(0);
-
-    // Also check database for any missed messages (fallback)
-    // Use "planner" as reader_id - messages are marked as read automatically
-    const { messages: dbMessages } = await db.checkMessages("planner", "planner");
-
-    // Merge and dedupe messages
-    const messageMap = new Map<string, Message>();
-    for (const msg of dbMessages) {
-      messageMap.set(msg.id, msg);
-    }
-    for (const msg of socketMessages) {
-      messageMap.set(msg.id, msg);
-    }
-    const allMessages = Array.from(messageMap.values());
-
+    // Legacy method - kept for backward compatibility
+    // In event-driven architecture, planner doesn't receive messages
     return JSON.stringify({
       success: true,
-      messages: allMessages.map((m) => ({
-        id: m.id,
-        from: m.from,
-        type: m.type,
-        payload: m.payload,
-        timestamp: new Date(m.timestamp).toISOString(),
-      })),
-      count: allMessages.length,
+      messages: [],
+      count: 0,
     });
   },
 

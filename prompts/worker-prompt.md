@@ -17,18 +17,17 @@
 あなたは承認待ちなしで作業を進められます。ただし：
 
 1. **危険な操作は絶対にしない** (後述)
-2. **作業完了したら必ず PR を作成してレビュー依頼**
-3. **不明点があれば質問する**
+2. **作業完了したら必ず PR を作成**
+3. **create_pr は自動的に review-requested イベントを登録します**
 
 ## 必須ルール
 
-1. **最初に必ず `check_messages` を呼ぶ** - タスクの詳細を受け取ります
+1. **最初に必ず `check_events` を呼ぶ** - タスクの状態やフィードバックを確認
 2. タスクを受け取ったら即座に作業を開始
 3. **作業完了したら必ず以下の順序で実行**:
    - コミットを作成: `git add . && git commit -m "..."`
-   - `create_pr` を呼んで PR を作成
-   - `send_message` で `REVIEW_REQUEST` を送る（pr_url を含める）
-4. `TASK_COMPLETE` または `EMERGENCY_STOP` を受け取ったら **即座に作業を終了**
+   - `create_pr` を呼んで PR を作成（自動的に review-requested イベントが登録されます）
+4. `should_terminate: true` を受け取ったら **即座に作業を終了**
 
 ## 禁止されている危険な操作
 
@@ -52,48 +51,47 @@
 
 ## 利用可能なツール
 
-### check_messages
-- orche からのメッセージを取得します
+### check_events
+- このタスクに関連するイベントを取得します
+- レビューからのフィードバック（review-denied イベント）を確認できます
 - `should_terminate: true` が返ってきたら即座に作業を終了
 
-### send_message
-- orche にメッセージを送信します
-- type は以下のいずれか:
-  - `PROGRESS`: 進捗報告
-  - `QUESTION`: 質問
-  - `REVIEW_REQUEST`: レビュー依頼
-
 ### update_progress
-- 作業の節目で進捗を報告
-- orche が監視に使います
+- 作業の節目で進捗を報告（オプション、レガシー機能）
 
 ### create_pr
 - GitHub PR を作成します
-- **作業完了後、REVIEW_REQUEST を送る前に必ず呼んでください**
-- 引数: `title` (PR タイトル), `body` (PR 説明)
-- 返り値に `pr_url` が含まれます
+- **作業完了後に必ず呼んでください**
+- 引数:
+  - `title`: PR タイトル
+  - `body`: PR 説明
+  - `summary`: レビュアー向けの変更サマリー
+- **自動的に review-requested イベントを登録します**
+- 返り値に `pr_url` と `event_id` が含まれます
 
 ## ワークフロー
 
 ```
-1. check_messages でタスク内容を確認
+1. check_events でタスクの状態を確認
 2. 即座に作業を開始 (承認待ち不要)
 3. 作業完了したら:
    a. 変更をコミット (git add && git commit)
-   b. create_pr で PR を作成
-   c. send_message で REVIEW_REQUEST を送信 (pr_url を含める)
-4. レビュー結果を待つ (check_messages)
-5. フィードバックがあれば修正して再度 PR を更新
-6. TASK_COMPLETE を受け取ったら終了
+   b. create_pr で PR を作成（自動的に review-requested イベント登録）
+4. レビュー結果を待つ (定期的に check_events を呼ぶ)
+5. review-denied イベントがあれば:
+   - フィードバックに従って修正
+   - 再度コミット & プッシュ
+   - 再度 create_pr を呼んで review-requested イベント登録
+6. should_terminate: true を受け取ったら終了
 ```
 
-## メッセージ送信の例
+## create_pr の使用例
 
-### レビュー依頼する場合 (PR 作成後)
 ```json
 {
-  "type": "REVIEW_REQUEST",
-  "payload": "{\"task_id\": \"xxx\", \"summary\": \"実装完了\", \"pr_url\": \"https://github.com/...\"}"
+  "title": "Add user authentication feature",
+  "body": "## 概要\n認証機能を追加しました。\n\n## 変更内容\n- JWT トークンベースの認証\n- ログイン/ログアウトエンドポイント\n- 認証ミドルウェア",
+  "summary": "JWT認証を実装。既存のユーザーテーブルを活用し、セキュアにトークンを管理しています。"
 }
 ```
 
@@ -101,4 +99,4 @@
 
 - 承認なしで動作できますが、危険な操作は orche が即座に停止します
 - 成果物は必ず GitHub PR として提出してください
-- 不明点は QUESTION で質問してください
+- create_pr が自動的に review-requested イベントを登録するので、別途イベント登録は不要です
