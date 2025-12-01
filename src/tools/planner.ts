@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from "uuid";
 import * as db from "../lib/db.js";
 import { EventType } from "../types.js";
 import type { TaskCreateEventPayload } from "../types.js";
+import * as memory from "../lib/memory.js";
+import { MemoryCategory } from "../lib/memory.js";
 
 // Tool definitions for planner
 export const plannerTools = [
@@ -23,6 +25,58 @@ export const plannerTools = [
   {
     name: "list_tasks",
     description: "List all tasks and their status",
+    inputSchema: z.object({}),
+  },
+  {
+    name: "read_memory",
+    description: "Read knowledge from a specific memory category",
+    inputSchema: z.object({
+      category: z
+        .enum([
+          "architecture",
+          "tech-stack",
+          "requirements",
+          "decisions",
+          "conventions",
+        ])
+        .describe("Memory category to read"),
+    }),
+  },
+  {
+    name: "write_memory",
+    description: "Write or update knowledge in a specific memory category",
+    inputSchema: z.object({
+      category: z
+        .enum([
+          "architecture",
+          "tech-stack",
+          "requirements",
+          "decisions",
+          "conventions",
+        ])
+        .describe("Memory category to write"),
+      content: z.string().describe("Content to write (will overwrite existing content)"),
+    }),
+  },
+  {
+    name: "append_memory",
+    description: "Append knowledge to a specific memory category without overwriting",
+    inputSchema: z.object({
+      category: z
+        .enum([
+          "architecture",
+          "tech-stack",
+          "requirements",
+          "decisions",
+          "conventions",
+        ])
+        .describe("Memory category to append to"),
+      content: z.string().describe("Content to append"),
+    }),
+  },
+  {
+    name: "list_memories",
+    description: "List all memory categories and check if they have content",
     inputSchema: z.object({}),
   },
 ] as const;
@@ -86,5 +140,86 @@ export const plannerHandlers = {
       })),
       count: tasks.length,
     });
+  },
+
+  async read_memory(params: { category: string }): Promise<string> {
+    try {
+      const content = await memory.readMemory(params.category as MemoryCategory);
+
+      return JSON.stringify({
+        success: true,
+        category: params.category,
+        content: content,
+        has_content: content.trim().length > 0,
+      });
+    } catch (error) {
+      return JSON.stringify({
+        success: false,
+        error: (error as Error).message,
+      });
+    }
+  },
+
+  async write_memory(params: {
+    category: string;
+    content: string;
+  }): Promise<string> {
+    try {
+      await memory.writeMemory(params.category as MemoryCategory, params.content);
+
+      return JSON.stringify({
+        success: true,
+        category: params.category,
+        message: `Memory written to ${params.category}`,
+      });
+    } catch (error) {
+      return JSON.stringify({
+        success: false,
+        error: (error as Error).message,
+      });
+    }
+  },
+
+  async append_memory(params: {
+    category: string;
+    content: string;
+  }): Promise<string> {
+    try {
+      await memory.appendMemory(params.category as MemoryCategory, params.content);
+
+      return JSON.stringify({
+        success: true,
+        category: params.category,
+        message: `Memory appended to ${params.category}`,
+      });
+    } catch (error) {
+      return JSON.stringify({
+        success: false,
+        error: (error as Error).message,
+      });
+    }
+  },
+
+  async list_memories(): Promise<string> {
+    try {
+      const categories = Object.values(MemoryCategory);
+      const memories = await Promise.all(
+        categories.map(async (category) => ({
+          category,
+          has_content: await memory.hasMemory(category),
+        }))
+      );
+
+      return JSON.stringify({
+        success: true,
+        memories,
+        count: memories.length,
+      });
+    } catch (error) {
+      return JSON.stringify({
+        success: false,
+        error: (error as Error).message,
+      });
+    }
   },
 };
