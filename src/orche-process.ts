@@ -19,6 +19,7 @@ import type {
   ReviewApprovedEventPayload,
   ReviewDeniedEventPayload,
 } from "./types.js";
+import { generateReviewerSettings, createClaudeSettings } from "./lib/claude-settings.js";
 
 // Polling interval in milliseconds
 const POLL_INTERVAL_MS = 1000;
@@ -300,8 +301,12 @@ async function spawnReviewer(): Promise<string> {
       await setWindowName(windowId, `Reviewer+Orche:${SESSION_UID}`);
     }
 
+    // Generate and create .claude/settings.local.json for reviewer
+    const reviewerSettings = generateReviewerSettings();
+    await createClaudeSettings(PROJECT_ROOT, reviewerSettings);
+
     // Start reviewer in the new pane
-    const reviewerCmd = `claude --model opus --dangerously-skip-permissions --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/reviewer-prompt.md)" "レビュー依頼が来ています。check_review_requests を呼んでレビューしてください。"`;
+    const reviewerCmd = `claude --model opus --mcp-config ${GENERATED_DIR}/reviewer.json --system-prompt "$(cat ${PROJECT_ROOT}/prompts/reviewer-prompt.md)" "レビュー依頼が来ています。check_review_requests を呼んでレビューしてください。"`;
 
     const sendProc = Bun.spawn([
       "tmux",

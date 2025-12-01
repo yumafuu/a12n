@@ -8,3 +8,4 @@ bun.lockb
 .worktrees/
 .worker-config.json
 .generated/
+.claude/settings.local.json
