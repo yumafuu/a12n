@@ -55,6 +55,9 @@ const WORKER_ALLOW_RULES = [
   "Bash(gh *)",
   "Grep",
   "Glob",
+  "mcp__aiorchestration__check_events",
+  "mcp__aiorchestration__update_progress",
+  "mcp__aiorchestration__create_pr",
 ];
 
 /**
@@ -72,6 +75,10 @@ const REVIEWER_ALLOW_RULES = [
   "Bash(find *)",
   "Grep",
   "Glob",
+  "mcp__aiorchestration__check_review_requests",
+  "mcp__aiorchestration__approve_review",
+  "mcp__aiorchestration__deny_review",
+  "mcp__aiorchestration__get_task_info",
 ];
 
 /**
