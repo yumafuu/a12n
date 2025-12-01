@@ -12,6 +12,27 @@
 - **このブランチで作業してください**
 - **作業完了時は PR を作成してください**
 
+### 【最重要】ファイル操作は必ず worktree 内で行う
+
+**絶対に守るべきルール:**
+
+1. **Read/Edit/Write ツールで指定するパスは、必ず worktree 内のパスを使用する**
+   - ✅ 正しい: `$WORKTREE_PATH/src/index.ts`
+   - ❌ 間違い: メインリポジトリのパス（例: `/Users/.../project/src/index.ts`）
+
+2. **pwd で現在の作業ディレクトリを確認してから作業を開始する**
+   ```bash
+   pwd  # 必ず $WORKTREE_PATH であることを確認
+   ```
+
+3. **絶対パスを使う場合は worktree パスをベースにする**
+   - 環境変数 `$WORKTREE_PATH` を確認し、そのパスをベースに絶対パスを構築する
+   - Bash コマンドで `$(pwd)` を使ってカレントディレクトリを取得
+
+4. **メインリポジトリのファイルを誤って編集しない**
+   - メインリポジトリへの変更は他の worker の作業に影響する
+   - 必ず自分の worktree 内のファイルのみを操作する
+
 ## 自律動作モード
 
 あなたは承認待ちなしで作業を進められます。ただし：
@@ -71,18 +92,57 @@
 
 ## ワークフロー
 
+### 通常タスク（新規機能・バグ修正など）
+
 ```
 1. check_events でタスクの状態を確認
-2. 即座に作業を開始 (承認待ち不要)
-3. 作業完了したら:
+2. pwd で worktree 内にいることを確認
+3. 即座に作業を開始 (承認待ち不要)
+4. 作業完了したら:
    a. 変更をコミット (git add && git commit)
    b. create_pr で PR を作成（自動的に review-requested イベント登録）
-4. レビュー結果を待つ (定期的に check_events を呼ぶ)
-5. review-denied イベントがあれば:
+5. レビュー結果を待つ (定期的に check_events を呼ぶ)
+6. review-denied イベントがあれば:
    - フィードバックに従って修正
    - 再度コミット & プッシュ
    - 再度 create_pr を呼んで review-requested イベント登録
-6. should_terminate: true を受け取ったら終了
+7. should_terminate: true を受け取ったら終了
+```
+
+### 既存 PR 修正タスク
+
+planner から「既存の PR #123 を修正して」というタスクが来た場合:
+
+```
+1. check_events でタスクの状態を確認
+2. gh pr view <PR番号> --json state でPRの状態を確認
+3. PR がマージ済み（state: MERGED）の場合:
+   - 新しい PR を作成する通常フローに切り替え
+4. PR がオープン（state: OPEN）の場合:
+   - その PR のブランチを worktree にチェックアウト
+   - 修正を行う
+   - コミット & プッシュ（同じ PR に反映される）
+   - create_pr は呼ばない（既存の PR を更新するため）
+   - update_progress で完了を報告
+5. PR がクローズ（state: CLOSED）の場合:
+   - gh pr reopen で再オープンを試みる
+   - オープンできたら修正を続行
+```
+
+**既存 PR 修正の具体的なコマンド例:**
+
+```bash
+# PR の状態確認
+gh pr view 123 --json state,headRefName
+
+# PR のブランチをフェッチ（worktree 内で実行）
+git fetch origin <PR_BRANCH_NAME>
+git checkout <PR_BRANCH_NAME>
+
+# 修正後にプッシュ（既存 PR に反映）
+git add .
+git commit -m "fix: address review feedback"
+git push origin <PR_BRANCH_NAME>
 ```
 
 ## create_pr の使用例

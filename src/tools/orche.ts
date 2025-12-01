@@ -100,6 +100,42 @@ function getTargetRepoRoot(): string {
   return process.env.TARGET_REPO_ROOT || process.cwd();
 }
 
+// Get the default branch name (main or master)
+async function getDefaultBranch(targetRepo: string): Promise<string> {
+  // Try to get the default branch from remote
+  const proc = Bun.spawn(
+    ["git", "symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+    {
+      cwd: targetRepo,
+      stdout: "pipe",
+      stderr: "pipe",
+    }
+  );
+  const output = (await new Response(proc.stdout).text()).trim();
+  await proc.exited;
+
+  if (output) {
+    // Output is like "origin/main", extract branch name
+    return output.replace("origin/", "");
+  }
+
+  // Fallback: check if main or master exists
+  const mainProc = Bun.spawn(
+    ["git", "rev-parse", "--verify", "origin/main"],
+    {
+      cwd: targetRepo,
+      stdout: "pipe",
+      stderr: "pipe",
+    }
+  );
+  const mainExitCode = await mainProc.exited;
+  if (mainExitCode === 0) {
+    return "main";
+  }
+
+  return "master";
+}
+
 // Create git worktree for a worker
 async function createWorktree(
   taskId: string,
@@ -117,18 +153,23 @@ async function createWorktree(
   });
   await proc1.exited;
 
-  // Get current branch to use as base
-  const proc2 = Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd: targetRepo,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const baseBranch = (await new Response(proc2.stdout).text()).trim() || "main";
-  await proc2.exited;
+  // Get the default branch (main or master)
+  const defaultBranch = await getDefaultBranch(targetRepo);
 
-  // Create new worktree with new branch
+  // Fetch the latest changes from remote for the default branch
+  const fetchProc = Bun.spawn(
+    ["git", "fetch", "origin", defaultBranch],
+    {
+      cwd: targetRepo,
+      stdout: "pipe",
+      stderr: "pipe",
+    }
+  );
+  await fetchProc.exited;
+
+  // Create new worktree with new branch based on latest origin/defaultBranch
   const proc3 = Bun.spawn(
-    ["git", "worktree", "add", "-b", branchName, worktreePath, baseBranch],
+    ["git", "worktree", "add", "-b", branchName, worktreePath, `origin/${defaultBranch}`],
     {
       cwd: targetRepo,
       stdout: "pipe",
