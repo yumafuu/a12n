@@ -102,12 +102,20 @@ async function main() {
     process.exit(1);
   }
 
-  // Create new window for planner, orche, reviewer, and workers
-  console.log(`Creating agents window: ${WINDOW_NAME}`);
+  // Get current pane ID for planner
+  const plannerPane = await runCommand([
+    "tmux",
+    "display-message",
+    "-p",
+    "#{pane_id}",
+  ]);
+
+  // Create new window for orche, reviewer, and workers
+  console.log(`Creating orche window: ${WINDOW_NAME}`);
   await runCommand(["tmux", "new-window", "-d", "-n", WINDOW_NAME]);
 
-  // Get planner pane (initial pane in new window)
-  const plannerPane = await runCommand([
+  // Get orche pane (initial pane in new window)
+  const orchePane = await runCommand([
     "tmux",
     "display-message",
     "-t",
@@ -116,24 +124,22 @@ async function main() {
     "#{pane_id}",
   ]);
 
-  // Split window to create orche pane on the right of planner
-  const orchePane = await runCommand([
-    "tmux",
-    "split-window",
-    "-t",
-    plannerPane,
-    "-h",
-    "-P",
-    "-F",
-    "#{pane_id}",
-  ]);
-
   // Get window ID for naming
-  const agentsWindow = await runCommand([
+  const orcheWindow = await runCommand([
     "tmux",
     "display-message",
     "-t",
     WINDOW_NAME,
+    "-p",
+    "#{window_id}",
+  ]);
+
+  // Get planner window ID for naming
+  const plannerWindow = await runCommand([
+    "tmux",
+    "display-message",
+    "-t",
+    plannerPane,
     "-p",
     "#{window_id}",
   ]);
@@ -149,8 +155,9 @@ async function main() {
   await setPaneBorderColor(orchePane, "orche");
   await setPaneTitle(orchePane, "Orche");
 
-  // Set window name with UID (planner and orche share this window)
-  await setWindowName(agentsWindow, `Planner+Orche:${UID}`);
+  // Set window name with UID
+  await setWindowName(plannerWindow, `Planner:${UID}`);
+  await setWindowName(orcheWindow, `Orche:${UID}`);
 
   // Start planner in planner pane
   const plannerPromptPath = join(PROJECT_ROOT, "prompts/planner-prompt.md");
@@ -167,12 +174,12 @@ async function main() {
 
   console.log("");
   console.log("Setup complete!");
-  console.log(`  Window '${WINDOW_NAME}':`);
-  console.log(`    - Pane (${plannerPane}): Planner (human interaction)`);
+  console.log(`  Planner pane (${plannerPane}): Running in current pane`);
+  console.log(`  Orche window '${WINDOW_NAME}':`);
   console.log(`    - Pane (${orchePane}): Orche (workers spawn here)`);
   console.log(`    - Reviewer will be spawned on-demand by watcher`);
   console.log("");
-  console.log("Switch to window to see planner:");
+  console.log("Switch to orche window:");
   console.log(`  tmux select-window -t ${WINDOW_NAME}`);
   console.log("");
 }

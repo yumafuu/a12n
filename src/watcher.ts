@@ -106,7 +106,7 @@ async function spawnReviewer(): Promise<string> {
     console.log(`[watcher] Created reviewer pane: ${newPaneId}`);
 
     // Swap panes to move reviewer to the left of orche
-    // This makes the order: planner | reviewer | orche
+    // This makes the order: reviewer | orche (in the same window)
     const swapProc = Bun.spawn([
       "tmux",
       "swap-pane",
@@ -142,9 +142,9 @@ async function spawnReviewer(): Promise<string> {
     await setPaneBorderColor(newPaneId, "reviewer");
     await setPaneTitle(newPaneId, "Reviewer");
 
-    // Set window name to include Reviewer (this window is shared with planner and orche)
+    // Set window name to include Reviewer (this window is shared with orche)
     if (SESSION_UID) {
-      await setWindowName(windowId, `Planner+Reviewer+Orche:${SESSION_UID}`);
+      await setWindowName(windowId, `Reviewer+Orche:${SESSION_UID}`);
     }
 
     // Start reviewer in the new pane
