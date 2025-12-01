@@ -22,12 +22,15 @@ function generateWindowName(): string {
 
 const WINDOW_NAME = generateWindowName();
 const PROJECT_ROOT = import.meta.dir.replace("/scripts", "");
+const TARGET_REPO = process.cwd(); // Directory where aio was launched
 
 // Directory for generated config files
 const GENERATED_DIR = join(PROJECT_ROOT, ".generated");
 
 // Generate MCP config for a role
 function generateMcpConfig(role: string, extraEnv: Record<string, string> = {}): object {
+  const DB_PATH = join(TARGET_REPO, ".aio", "aiorchestration.db");
+
   return {
     mcpServers: {
       aiorchestration: {
@@ -35,7 +38,7 @@ function generateMcpConfig(role: string, extraEnv: Record<string, string> = {}):
         args: ["run", join(PROJECT_ROOT, "src/mcp-server.ts"), "--role", role],
         env: {
           PROJECT_ROOT,
-          DB_PATH: join(PROJECT_ROOT, "aiorchestration.db"),
+          DB_PATH,
           ...extraEnv,
         },
       },
@@ -48,10 +51,13 @@ function setupGeneratedConfigs(): void {
   // Create .generated directory if it doesn't exist
   mkdirSync(GENERATED_DIR, { recursive: true });
 
+  // Create .aio directory in target repo for DB
+  mkdirSync(join(TARGET_REPO, ".aio"), { recursive: true });
+
   // Generate config files for each role
   const configs = {
     planner: generateMcpConfig("planner"),
-    orche: generateMcpConfig("orche", { TARGET_REPO_ROOT: PROJECT_ROOT }),
+    orche: generateMcpConfig("orche", { TARGET_REPO_ROOT: TARGET_REPO }),
     reviewer: generateMcpConfig("reviewer"),
     worker: generateMcpConfig("worker"),
   };
@@ -82,6 +88,8 @@ async function main() {
   console.log("Starting aiorchestration...");
   console.log(`Window name: ${WINDOW_NAME}`);
   console.log(`Project root: ${PROJECT_ROOT}`);
+  console.log(`Target repo: ${TARGET_REPO}`);
+  console.log(`Database: ${TARGET_REPO}/.aio/aiorchestration.db`);
 
   // Generate MCP config files dynamically
   setupGeneratedConfigs();
