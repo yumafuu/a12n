@@ -37,7 +37,6 @@ function generateMcpConfig(role: string, extraEnv: Record<string, string> = {}):
         command: "bun",
         args: ["run", join(PROJECT_ROOT, "src/mcp-server.ts"), "--role", role],
         env: {
-          PROJECT_ROOT,
           DB_PATH,
           ...extraEnv,
         },
@@ -57,7 +56,12 @@ function setupGeneratedConfigs(): void {
   // Generate config files for each role
   const configs = {
     planner: generateMcpConfig("planner"),
-    orche: generateMcpConfig("orche", { TARGET_REPO_ROOT: TARGET_REPO }),
+    orche: generateMcpConfig("orche", {
+      TARGET_REPO_ROOT: TARGET_REPO,
+      PROJECT_ROOT: PROJECT_ROOT,
+      GENERATED_DIR: GENERATED_DIR,
+      SESSION_UID: UID,
+    }),
     reviewer: generateMcpConfig("reviewer"),
     worker: generateMcpConfig("worker"),
   };
