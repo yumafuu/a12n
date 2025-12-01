@@ -275,6 +275,7 @@ export const workerHandlers = {
         "gh",
         "pr",
         "create",
+        "--draft",
         "--title",
         params.title,
         "--body",
