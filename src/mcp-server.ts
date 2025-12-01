@@ -4,6 +4,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { orcheTools, orcheHandlers } from "./tools/orche.js";
 import { workerTools, workerHandlers } from "./tools/worker.js";
 import { plannerTools, plannerHandlers } from "./tools/planner.js";
@@ -33,87 +34,6 @@ function parseArgs(): { role: Role; workerId?: string } {
   }
 
   return { role, workerId };
-}
-
-// Convert zod schema to JSON schema
-function zodToJsonSchema(zodSchema: unknown): Record<string, unknown> {
-  const schema = zodSchema as {
-    shape?: Record<string, unknown>;
-    _def?: { typeName?: string };
-  };
-
-  if (!schema.shape) {
-    return { type: "object", properties: {} };
-  }
-
-  const properties: Record<string, unknown> = {};
-  const required: string[] = [];
-
-  for (const [key, value] of Object.entries(schema.shape)) {
-    const fieldDef = value as {
-      _def?: {
-        typeName?: string;
-        innerType?: unknown;
-        description?: string;
-        values?: string[];
-        defaultValue?: unknown;
-      };
-      description?: string;
-    };
-
-    let fieldSchema: Record<string, unknown> = {};
-    const def = fieldDef._def;
-
-    if (def?.typeName === "ZodString") {
-      fieldSchema = { type: "string" };
-    } else if (def?.typeName === "ZodEnum") {
-      fieldSchema = { type: "string", enum: def.values };
-    } else if (def?.typeName === "ZodBoolean") {
-      fieldSchema = { type: "boolean" };
-    } else if (def?.typeName === "ZodOptional") {
-      const innerDef = def.innerType as {
-        _def?: { typeName?: string; values?: string[]; description?: string };
-      };
-      if (innerDef?._def?.typeName === "ZodString") {
-        fieldSchema = { type: "string" };
-      } else if (innerDef?._def?.typeName === "ZodEnum") {
-        fieldSchema = { type: "string", enum: innerDef._def.values };
-      } else {
-        fieldSchema = { type: "string" };
-      }
-      if (innerDef?._def?.description) {
-        fieldSchema.description = innerDef._def.description;
-      }
-    } else if (def?.typeName === "ZodDefault") {
-      const innerDef = def.innerType as {
-        _def?: { typeName?: string; innerType?: unknown; description?: string };
-      };
-      if (innerDef?._def?.typeName === "ZodBoolean") {
-        fieldSchema = { type: "boolean", default: def.defaultValue };
-      } else {
-        fieldSchema = { type: "string" };
-      }
-    } else {
-      fieldSchema = { type: "string" };
-    }
-
-    if (def?.description) {
-      fieldSchema.description = def.description;
-    }
-
-    properties[key] = fieldSchema;
-
-    // Check if required (not optional and no default)
-    if (def?.typeName !== "ZodOptional" && def?.typeName !== "ZodDefault") {
-      required.push(key);
-    }
-  }
-
-  return {
-    type: "object",
-    properties,
-    required: required.length > 0 ? required : undefined,
-  };
 }
 
 async function main() {
