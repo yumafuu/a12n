@@ -10,7 +10,8 @@ import { findGitHubUsername } from '../data/user-mapping-mock';
  */
 export async function handleSlackWebhook(
   request: Request,
-  env: Env
+  env: Env,
+  ctx: ExecutionContext
 ): Promise<Response> {
   // Verify Slack signature
   const signature = request.headers.get('X-Slack-Signature');
@@ -18,12 +19,12 @@ export async function handleSlackWebhook(
   const body = await request.text();
 
   if (
-    !verifySlackSignature(
+    !(await verifySlackSignature(
       env.SLACK_SIGNING_SECRET,
       signature,
       timestamp,
       body
-    )
+    ))
   ) {
     return new Response('Invalid signature', { status: 401 });
   }
@@ -41,7 +42,8 @@ export async function handleSlackWebhook(
 
     // Handle event subscriptions
     if (payload.type === 'event_callback') {
-      return await handleSlackEvent(payload, env);
+      ctx.waitUntil(handleSlackEvent(payload, env));
+      return new Response('OK', { status: 200 });
     }
   }
 
@@ -51,7 +53,8 @@ export async function handleSlackWebhook(
     const payloadStr = params.get('payload');
     if (payloadStr) {
       const payload = JSON.parse(payloadStr);
-      return await handleSlackInteraction(payload, env);
+      ctx.waitUntil(handleSlackInteraction(payload, env));
+      return new Response('OK', { status: 200 });
     }
   }
 
@@ -61,21 +64,19 @@ export async function handleSlackWebhook(
 /**
  * Handle Slack event subscriptions (message events, etc.)
  */
-async function handleSlackEvent(payload: any, env: Env): Promise<Response> {
+async function handleSlackEvent(payload: any, env: Env): Promise<void> {
   const event = payload.event;
 
   // Handle thread replies (for updating issue response)
   if (event.type === 'message' && event.thread_ts && !event.bot_id) {
-    return await handleThreadReply(event, env);
+    await handleThreadReply(event, env);
   }
-
-  return new Response('OK', { status: 200 });
 }
 
 /**
  * Handle thread reply (update issue response based on feedback)
  */
-async function handleThreadReply(event: any, env: Env): Promise<Response> {
+async function handleThreadReply(event: any, env: Env): Promise<void> {
   const threadTs = event.thread_ts;
   const channel = event.channel;
   const feedback = event.text;
@@ -102,8 +103,6 @@ async function handleThreadReply(event: any, env: Env): Promise<Response> {
   );
 
   console.log('Posted updated response to Slack thread');
-
-  return new Response('OK', { status: 200 });
 }
 
 /**
@@ -112,20 +111,18 @@ async function handleThreadReply(event: any, env: Env): Promise<Response> {
 async function handleSlackInteraction(
   payload: any,
   env: Env
-): Promise<Response> {
+): Promise<void> {
   const actionId = payload.actions?.[0]?.action_id;
 
   if (actionId === 'approve_issue_response') {
-    return await handleApproval(payload, env);
+    await handleApproval(payload, env);
   }
-
-  return new Response('OK', { status: 200 });
 }
 
 /**
  * Handle approval button click - post response to GitHub
  */
-async function handleApproval(payload: any, env: Env): Promise<Response> {
+async function handleApproval(payload: any, env: Env): Promise<void> {
   const user = payload.user;
   const message = payload.message;
 
@@ -163,7 +160,7 @@ async function handleApproval(payload: any, env: Env): Promise<Response> {
 
   if (!issueUrl || !responseDraft) {
     console.error('Failed to extract issue info from Slack message');
-    return new Response('Failed to extract issue info', { status: 400 });
+    return;
   }
 
   // Parse issue URL to get owner, repo, issue number
@@ -173,7 +170,7 @@ async function handleApproval(payload: any, env: Env): Promise<Response> {
   );
   if (!urlMatch) {
     console.error('Invalid issue URL format');
-    return new Response('Invalid issue URL', { status: 400 });
+    return;
   }
 
   const [, owner, repo, issueNumberStr] = urlMatch;
@@ -194,14 +191,4 @@ async function handleApproval(payload: any, env: Env): Promise<Response> {
   );
 
   console.log('Posted approved response to GitHub');
-
-  // Update Slack message to show approval
-  return new Response(
-    JSON.stringify({
-      text: '✅ Response approved and posted to GitHub!',
-    }),
-    {
-      headers: { 'Content-Type': 'application/json' },
-    }
-  );
 }

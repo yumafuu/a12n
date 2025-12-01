@@ -18,13 +18,14 @@ import { mockKOSAssessment } from '../data/kos-assessment-mock';
  */
 export async function handleGitHubWebhook(
   request: Request,
-  env: Env
+  env: Env,
+  ctx: ExecutionContext
 ): Promise<Response> {
   // Verify signature
   const signature = request.headers.get('X-Hub-Signature-256');
   const body = await request.text();
 
-  if (!verifyGitHubSignature(body, signature, env.GITHUB_WEBHOOK_SECRET)) {
+  if (!(await verifyGitHubSignature(body, signature, env.GITHUB_WEBHOOK_SECRET))) {
     return new Response('Invalid signature', { status: 401 });
   }
 
@@ -35,9 +36,13 @@ export async function handleGitHubWebhook(
 
   try {
     if (event === 'pull_request') {
-      return await handlePullRequest(payload, env);
+      // Use ctx.waitUntil to process asynchronously
+      ctx.waitUntil(handlePullRequest(payload, env));
+      return new Response('PR review triggered', { status: 202 });
     } else if (event === 'issues') {
-      return await handleIssue(payload, env);
+      // Use ctx.waitUntil to process asynchronously
+      ctx.waitUntil(handleIssue(payload, env));
+      return new Response('Issue processing triggered', { status: 202 });
     } else if (event === 'ping') {
       return new Response('pong', { status: 200 });
     } else {
@@ -52,11 +57,11 @@ export async function handleGitHubWebhook(
 /**
  * Handle pull_request event (opened, synchronize)
  */
-async function handlePullRequest(payload: any, env: Env): Promise<Response> {
+async function handlePullRequest(payload: any, env: Env): Promise<void> {
   const action = payload.action;
 
   if (action !== 'opened' && action !== 'synchronize') {
-    return new Response('PR action not relevant', { status: 200 });
+    return;
   }
 
   const pr = payload.pull_request;
@@ -82,18 +87,16 @@ async function handlePullRequest(payload: any, env: Env): Promise<Response> {
   await postPRComment(env.GITHUB_TOKEN, owner, repoName, pr.number, review);
 
   console.log(`Posted review on PR #${pr.number}`);
-
-  return new Response('Review posted', { status: 200 });
 }
 
 /**
  * Handle issues event (opened)
  */
-async function handleIssue(payload: any, env: Env): Promise<Response> {
+async function handleIssue(payload: any, env: Env): Promise<void> {
   const action = payload.action;
 
   if (action !== 'opened') {
-    return new Response('Issue action not relevant', { status: 200 });
+    return;
   }
 
   const issue = payload.issue;
@@ -147,6 +150,4 @@ async function handleIssue(payload: any, env: Env): Promise<Response> {
   // Store metadata for later approval (in production, use KV or Durable Objects)
   // For now, we'll encode it in the message itself or rely on thread_ts
   // This is a simplified approach; consider using KV storage for production
-
-  return new Response('Issue response draft posted to Slack', { status: 200 });
 }

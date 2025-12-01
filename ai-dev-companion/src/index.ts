@@ -20,14 +20,14 @@ app.get('/', (c) => {
  * GitHub webhook endpoint
  */
 app.post('/webhook/github', async (c) => {
-  return await handleGitHubWebhook(c.req.raw, c.env);
+  return await handleGitHubWebhook(c.req.raw, c.env, c.executionCtx);
 });
 
 /**
  * Slack webhook endpoint
  */
 app.post('/webhook/slack', async (c) => {
-  return await handleSlackWebhook(c.req.raw, c.env);
+  return await handleSlackWebhook(c.req.raw, c.env, c.executionCtx);
 });
 
 export default app;
