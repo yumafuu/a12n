@@ -7,6 +7,7 @@
   },
   "scripts": {
     "start": "bun run scripts/start.ts",
+    "server": "bun run src/server.ts",
     "dev:planner": "bun run src/mcp-server.ts --role planner",
     "dev:orche": "bun run src/mcp-server.ts --role orche",
     "dev:worker": "bun run src/mcp-server.ts --role worker",
@@ -15,12 +16,17 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0",
     "@modelcontextprotocol/sdk": "^1.5.0",
-    "zod": "^3.24.2",
-    "uuid": "^11.0.3"
+    "@octokit/rest": "^22.0.1",
+    "@slack/web-api": "^7.13.0",
+    "express": "^5.1.0",
+    "uuid": "^11.0.3",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/express": "^5.0.5",
     "@types/uuid": "^10.0.0",
     "typescript": "^5.7.2"
   }
