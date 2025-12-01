@@ -8,6 +8,8 @@
   "scripts": {
     "start": "bun run scripts/start.ts",
     "server": "bun run src/server.ts",
+    "dev": "bun run src/index.ts",
+    "build": "tsc",
     "dev:planner": "bun run src/mcp-server.ts --role planner",
     "dev:orche": "bun run src/mcp-server.ts --role orche",
     "dev:worker": "bun run src/mcp-server.ts --role worker",
@@ -19,6 +21,7 @@
     "@anthropic-ai/sdk": "^0.71.0",
     "@modelcontextprotocol/sdk": "^1.5.0",
     "@octokit/rest": "^22.0.1",
+    "@slack/bolt": "^4.6.0",
     "@slack/web-api": "^7.13.0",
     "express": "^5.1.0",
     "uuid": "^11.0.3",
