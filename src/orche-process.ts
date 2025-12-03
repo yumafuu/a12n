@@ -27,6 +27,10 @@ const POLL_INTERVAL_MS = 1000;
 // Track reviewer pane ID (spawned on-demand)
 let reviewerPaneId: string = "";
 
+// Track REVIEW_REQUESTED events that orche has already handled
+// (These events stay unprocessed in DB until reviewer approves/denies)
+const handledReviewRequestedEvents = new Set<string>();
+
 // Track last checked sequence for watcher functionality
 const lastCheckedSeq: Record<string, number> = {};
 
@@ -382,7 +386,11 @@ async function processEvent(event: Event): Promise<void> {
         break;
 
       case EventType.REVIEW_REQUESTED:
-        await handleReviewRequested(event);
+        // Skip if orche already handled this event (it stays unprocessed for reviewer)
+        if (!handledReviewRequestedEvents.has(event.id)) {
+          await handleReviewRequested(event);
+          handledReviewRequestedEvents.add(event.id);
+        }
         break;
 
       case EventType.REVIEW_APPROVED:
@@ -398,7 +406,10 @@ async function processEvent(event: Event): Promise<void> {
     }
 
     // Mark event as processed
-    await db.markEventProcessed(event.id);
+    // Note: REVIEW_REQUESTED events are marked as processed by reviewer (approve_review/deny_review)
+    if (event.type !== EventType.REVIEW_REQUESTED) {
+      await db.markEventProcessed(event.id);
+    }
   } catch (error) {
     console.error(`[${formatTimestamp()}] Error handling ${event.type}:`, error);
     // Don't mark as processed if there was an error - will retry next loop
