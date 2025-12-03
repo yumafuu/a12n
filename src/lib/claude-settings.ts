@@ -29,19 +29,14 @@ const DEFAULT_DENY_RULES = [
 ];
 
 /**
- * Worker-specific allow rules
+ * Common allow rules for all agents (Planner, Worker, Reviewer)
  */
-const WORKER_ALLOW_RULES = [
+const COMMON_ALLOW_RULES = [
+  // File reading
   "Read",
-  "Write",
-  "Edit",
-  "Bash(git *)",
-  "Bash(npm *)",
-  "Bash(bun *)",
-  "Bash(yarn *)",
-  "Bash(pnpm *)",
-  "Bash(node *)",
-  "Bash(python *)",
+  "Grep",
+  "Glob",
+  // Basic bash commands
   "Bash(ls *)",
   "Bash(pwd)",
   "Bash(cd *)",
@@ -52,33 +47,41 @@ const WORKER_ALLOW_RULES = [
   "Bash(cat *)",
   "Bash(grep *)",
   "Bash(find *)",
+  // Git commands
+  "Bash(git *)",
+  // GitHub CLI
   "Bash(gh *)",
-  "Grep",
-  "Glob",
-  "mcp__aiorchestration__check_events",
-  "mcp__aiorchestration__update_progress",
-  "mcp__aiorchestration__create_pr",
+  // All MCP aiorchestration tools (wildcard)
+  "mcp__aiorchestration__*",
 ];
 
 /**
- * Reviewer-specific allow rules
+ * Worker-specific allow rules (includes file editing and build tools)
+ */
+const WORKER_ALLOW_RULES = [
+  ...COMMON_ALLOW_RULES,
+  "Write",
+  "Edit",
+  "Bash(npm *)",
+  "Bash(bun *)",
+  "Bash(yarn *)",
+  "Bash(pnpm *)",
+  "Bash(node *)",
+  "Bash(python *)",
+];
+
+/**
+ * Reviewer-specific allow rules (read-only focus)
  */
 const REVIEWER_ALLOW_RULES = [
-  "Read",
-  "Bash(gh *)",
-  "Bash(git *)",
-  "Bash(ls *)",
-  "Bash(pwd)",
-  "Bash(cd *)",
-  "Bash(cat *)",
-  "Bash(grep *)",
-  "Bash(find *)",
-  "Grep",
-  "Glob",
-  "mcp__aiorchestration__check_review_requests",
-  "mcp__aiorchestration__approve_review",
-  "mcp__aiorchestration__deny_review",
-  "mcp__aiorchestration__get_task_info",
+  ...COMMON_ALLOW_RULES,
+];
+
+/**
+ * Planner-specific allow rules (code exploration focus)
+ */
+const PLANNER_ALLOW_RULES = [
+  ...COMMON_ALLOW_RULES,
 ];
 
 /**
@@ -100,6 +103,18 @@ export function generateReviewerSettings(): ClaudeSettings {
   return {
     permissions: {
       allow: REVIEWER_ALLOW_RULES,
+      deny: DEFAULT_DENY_RULES,
+    },
+  };
+}
+
+/**
+ * Generate settings.local.json for Planner
+ */
+export function generatePlannerSettings(): ClaudeSettings {
+  return {
+    permissions: {
+      allow: PLANNER_ALLOW_RULES,
       deny: DEFAULT_DENY_RULES,
     },
   };

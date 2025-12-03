@@ -12,6 +12,10 @@ import {
   setWindowName,
   ROLE_COLORS,
 } from "../src/lib/tmux.js";
+import {
+  generatePlannerSettings,
+  createClaudeSettings,
+} from "../src/lib/claude-settings.js";
 
 // Generate unique identifier for this session
 function generateUid(): string {
@@ -43,7 +47,7 @@ function generateMcpConfig(role: string, extraEnv: Record<string, string> = {}):
 }
 
 // Create generated config directory and write config files
-function setupGeneratedConfigs(uid: string): void {
+async function setupGeneratedConfigs(uid: string): Promise<void> {
   // Create .generated directory if it doesn't exist
   mkdirSync(GENERATED_DIR, { recursive: true });
 
@@ -70,6 +74,11 @@ function setupGeneratedConfigs(uid: string): void {
   }
 
   console.log(`Generated MCP configs in: ${GENERATED_DIR}`);
+
+  // Generate .claude/settings.local.json for Planner (in TARGET_REPO)
+  const plannerSettings = generatePlannerSettings();
+  await createClaudeSettings(TARGET_REPO, plannerSettings);
+  console.log(`Generated Planner settings in: ${TARGET_REPO}/.claude/settings.local.json`);
 }
 
 async function runCommand(cmd: string[]): Promise<string> {
@@ -98,7 +107,7 @@ async function startSession() {
   console.log(`Database: ${TARGET_REPO}/.aio/aiorchestration.db`);
 
   // Generate MCP config files dynamically
-  setupGeneratedConfigs(UID);
+  await setupGeneratedConfigs(UID);
 
   const insideTmux = await isInsideTmux();
 
